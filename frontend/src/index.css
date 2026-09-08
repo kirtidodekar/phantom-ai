@@ -1,68 +1,117 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --canvas: #F5F7FA;
+    --surface: #FFFFFF;
+    --surface-muted: #F8FAFC;
+    --surface-subtle: #EEF2F6;
+
+    --border: #D9E0E8;
+    --border-strong: #C7D0DB;
+
+    --text-primary: #172033;
+    --text-secondary: #526071;
+    --text-muted: #7A8797;
+
+    --primary: #2563EB;
+    --primary-dark: #1D4ED8;
+    --primary-soft: #EFF6FF;
+
+    --success: #16805C;
+    --success-soft: #ECFDF5;
+
+    --warning: #B7791F;
+    --warning-soft: #FFFBEB;
+
+    --danger: #C43D4B;
+    --danger-soft: #FFF1F2;
+
+    --critical: #9F1239;
+    --critical-soft: #FFF1F2;
+  }
+
   body {
-    @apply bg-slate-950 text-slate-100 font-sans antialiased selection:bg-cyan-500 selection:text-black min-h-screen overflow-x-hidden;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(15, 23, 42, 0.9) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(30, 27, 75, 0.4) 0px, transparent 50%),
-      radial-gradient(at 50% 100%, rgba(15, 23, 42, 0.9) 0px, transparent 50%);
+    background-color: var(--canvas);
+    color: var(--text-primary);
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    overflow-x: hidden;
   }
 }
 
-/* Glassmorphism Card Style */
-.glass-card {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+/* Card Surface Standard (No excessive glassmorphism) */
+.glass-card, .soc-surface {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.glass-card-hover {
-  transition: all 0.25s ease-in-out;
-}
-.glass-card-hover:hover {
-  border-color: rgba(56, 189, 248, 0.3);
-  box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
-  transform: translateY(-2px);
+.soc-surface-hover:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
-/* Cyber Glow Accents */
-.glow-cyan {
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
-}
-.glow-emerald {
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
-}
-.glow-amber {
-  box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
-}
-.glow-rose {
-  box-shadow: 0 0 20px rgba(244, 63, 94, 0.5);
+/* Major Outer Containers */
+.soc-container {
+  border-radius: 12px;
 }
 
-/* Pulse Animation */
-@keyframes pulseGlow {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.05); }
-}
-.animate-pulse-glow {
-  animation: pulseGlow 2s infinite ease-in-out;
+/* Operational Badges */
+.badge-critical {
+  background-color: var(--critical-soft);
+  color: var(--critical);
+  border: 1px solid rgba(159, 18, 57, 0.2);
 }
 
-/* Custom Scrollbar */
+.badge-danger {
+  background-color: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid rgba(196, 61, 75, 0.2);
+}
+
+.badge-warning {
+  background-color: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid rgba(183, 121, 31, 0.2);
+}
+
+.badge-success {
+  background-color: var(--success-soft);
+  color: var(--success);
+  border: 1px solid rgba(22, 128, 92, 0.2);
+}
+
+.badge-primary {
+  background-color: var(--primary-soft);
+  color: var(--primary-dark);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+/* Animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--surface-subtle);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
+  background: var(--border-strong);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(56, 189, 248, 0.5);
+  background: var(--text-muted);
 }

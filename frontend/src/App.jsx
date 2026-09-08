@@ -1,21 +1,37 @@
 import React, { useState, useEffect } from 'react';
+import LandingPage from './components/LandingPage';
+import AuthModal from './components/AuthModal';
 import Navbar from './components/Navbar';
-import TrajectoryChart from './components/TrajectoryChart';
-import AttackGraph from './components/AttackGraph';
-import IncidentDetails from './components/IncidentDetails';
-import AttackTimeline from './components/AttackTimeline';
-import MitreMatrix from './components/MitreMatrix';
-import BaselineDiff from './components/BaselineDiff';
-import AnalystActions from './components/AnalystActions';
+import OverviewPage from './components/OverviewPage';
+import TopologyPage from './components/TopologyPage';
+import ThreatIntelPage from './components/ThreatIntelPage';
+import ForensicsPage from './components/ForensicsPage';
+import ActionCenterPage from './components/ActionCenterPage';
+import ModelDiagnosticsPage from './components/ModelDiagnosticsPage';
 import MetricsModal from './components/MetricsModal';
-import { ShieldAlert, RefreshCw, AlertCircle } from 'lucide-react';
+import EntityDrawer from './components/EntityDrawer';
 
 export default function App() {
+  const [currentPage, setCurrentPage] = useState('landing');
+  const [activeTab, setActiveTab] = useState('overview');
   const [incidents, setIncidents] = useState([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState(null);
   const [currentStage, setCurrentStage] = useState("Stage 5: Network SQLi Data Exfiltration");
   const [isReplaying, setIsReplaying] = useState(false);
   const [isMetricsOpen, setIsMetricsOpen] = useState(false);
+
+  // User State & Auth Modal
+  const [currentUser, setCurrentUser] = useState({
+    name: 'Alex Rivera',
+    email: 'alex@sentinel.ai',
+    role: 'SOC Tier-2 Analyst'
+  });
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState('login');
+
+  // Entity Side Drawer State
+  const [entityDrawerOpen, setEntityDrawerOpen] = useState(false);
+  const [selectedEntityData, setSelectedEntityData] = useState(null);
 
   const fetchIncidents = async () => {
     try {
@@ -40,7 +56,7 @@ export default function App() {
 
   const handleStartReplay = async () => {
     setIsReplaying(true);
-    setCurrentStage("Executing Full 5-Stage Replay...");
+    setCurrentStage("Executing Full 5-Stage Scenario...");
     try {
       await fetch('/api/replay/start', { method: 'POST' });
       await fetchIncidents();
@@ -75,99 +91,156 @@ export default function App() {
     }
   };
 
+  const handleLaunchDashboard = (role) => {
+    const roleTitleMap = {
+      'Analyst': 'SOC Tier-2 Analyst',
+      'Engineer': 'Detection Engineer',
+      'Commander': 'IR Commander'
+    };
+    setCurrentUser(prev => ({
+      ...prev,
+      role: roleTitleMap[role] || role
+    }));
+    setCurrentPage('dashboard');
+  };
+
+  const handleOpenAuth = (mode) => {
+    setAuthModalMode(mode);
+    setAuthModalOpen(true);
+  };
+
+  const handleLoginSuccess = (userData) => {
+    setCurrentUser(userData);
+    setCurrentPage('dashboard');
+  };
+
+  const handleOpenEntityDrawer = (data) => {
+    setSelectedEntityData(data);
+    setEntityDrawerOpen(true);
+  };
+
   const activeIncident = incidents.find(i => i.incident_id === selectedIncidentId) || incidents[0];
+  const threatScore = activeIncident?.threat_score || 87;
+  const threatLevel = activeIncident?.risk_breakdown?.risk_level || "CRITICAL";
+
+  const renderActiveDashboardPage = () => {
+    switch (activeTab) {
+      case 'overview':
+        return (
+          <OverviewPage
+            incidents={incidents}
+            selectedIncidentId={selectedIncidentId}
+            onSelectIncident={setSelectedIncidentId}
+            activeIncident={activeIncident}
+            currentStage={currentStage}
+            onOpenEntity={handleOpenEntityDrawer}
+          />
+        );
+      case 'topology':
+        return (
+          <TopologyPage
+            activeIncident={activeIncident}
+            onOpenEntity={handleOpenEntityDrawer}
+          />
+        );
+      case 'intel':
+        return <ThreatIntelPage activeIncident={activeIncident} />;
+      case 'forensics':
+        return <ForensicsPage activeIncident={activeIncident} />;
+      case 'actions':
+        return (
+          <ActionCenterPage
+            activeIncident={activeIncident}
+            onRefreshIncident={fetchIncidents}
+          />
+        );
+      case 'diagnostics':
+        return <ModelDiagnosticsPage />;
+      default:
+        return (
+          <OverviewPage
+            incidents={incidents}
+            selectedIncidentId={selectedIncidentId}
+            onSelectIncident={setSelectedIncidentId}
+            activeIncident={activeIncident}
+            currentStage={currentStage}
+            onOpenEntity={handleOpenEntityDrawer}
+          />
+        );
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-black">
-      {/* Top Navbar */}
-      <Navbar
-        onStartReplay={handleStartReplay}
-        onStepReplay={handleStepReplay}
-        onResetReplay={handleResetReplay}
-        onOpenMetrics={() => setIsMetricsOpen(true)}
-        isReplaying={isReplaying}
-        currentStage={currentStage}
+    <div className="min-h-screen bg-[#F5F7FA] text-slate-900 flex flex-col selection:bg-blue-600 selection:text-white">
+      {currentPage === 'landing' ? (
+        <LandingPage
+          onLaunchDashboard={handleLaunchDashboard}
+          onOpenAuth={handleOpenAuth}
+        />
+      ) : (
+        <>
+          {/* Persistent Navigation AppShell Header */}
+          <Navbar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            incidents={incidents}
+            selectedIncidentId={selectedIncidentId}
+            onSelectIncident={setSelectedIncidentId}
+            onStartReplay={handleStartReplay}
+            onStepReplay={handleStepReplay}
+            onResetReplay={handleResetReplay}
+            onOpenMetrics={() => setIsMetricsOpen(true)}
+            isReplaying={isReplaying}
+            currentStage={currentStage}
+            currentUser={currentUser}
+            onGoHome={() => setCurrentPage('landing')}
+            onOpenAuth={handleOpenAuth}
+            threatScore={threatScore}
+            threatLevel={threatLevel}
+          />
+
+          {/* Main Workspace */}
+          <main className="flex-1 p-6 max-w-[1700px] w-full mx-auto space-y-6">
+            {renderActiveDashboardPage()}
+          </main>
+
+          {/* Persistent Footer */}
+          <footer className="border-t border-slate-200 bg-white px-6 py-2 text-[11px] font-mono text-slate-500 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center space-x-4">
+              <span className="flex items-center space-x-1.5 font-semibold text-slate-700">
+                <span className={`w-2 h-2 rounded-full inline-block ${
+                  threatScore >= 80 ? 'bg-rose-600' : threatScore >= 60 ? 'bg-amber-600' : 'bg-emerald-600'
+                }`} />
+                <span>INVESTIGATION FUSION: ONLINE</span>
+              </span>
+              <span>ANALYST: {currentUser.name} ({currentUser.role})</span>
+              <span>INCIDENTS: {incidents.length}</span>
+            </div>
+            <div>SENTINEL AI | SOC INVESTIGATION WORKSTATION</div>
+          </footer>
+        </>
+      )}
+
+      {/* Contextual Entity Slide Drawer */}
+      <EntityDrawer
+        isOpen={entityDrawerOpen}
+        onClose={() => setEntityDrawerOpen(false)}
+        entityData={selectedEntityData}
+        onNavigateTab={(tab) => {
+          setActiveTab(tab);
+          setEntityDrawerOpen(false);
+        }}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 p-6 space-y-6 max-w-[1700px] w-full mx-auto">
-        {/* Top Row: Trajectory Chart (70%) + Active Incidents List (30%) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8">
-            <TrajectoryChart incident={activeIncident} />
-          </div>
+      {/* Auth & Session History Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        mode={authModalMode}
+        onLoginSuccess={handleLoginSuccess}
+      />
 
-          <div className="lg:col-span-4 flex flex-col">
-            <div className="glass-card rounded-2xl p-5 border border-slate-800 shadow-xl flex-1 flex flex-col">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center space-x-2">
-                  <ShieldAlert className="w-5 h-5 text-cyan-400" />
-                  <h2 className="text-base font-semibold text-slate-100">Correlated Incidents</h2>
-                </div>
-                <span className="px-2 py-0.5 text-xs font-mono rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-                  {incidents.length} Active
-                </span>
-              </div>
-
-              <div className="space-y-2.5 flex-1 overflow-y-auto max-h-[300px] pr-1">
-                {incidents.length > 0 ? (
-                  incidents.map((inc) => (
-                    <div
-                      key={inc.incident_id}
-                      onClick={() => setSelectedIncidentId(inc.incident_id)}
-                      className={`p-3.5 rounded-xl border cursor-pointer transition ${
-                        selectedIncidentId === inc.incident_id
-                          ? 'bg-slate-900 border-cyan-500/60 shadow-lg shadow-cyan-950/40 ring-1 ring-cyan-500/40'
-                          : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-xs font-bold text-cyan-300">{inc.incident_id}</span>
-                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
-                          inc.threat_score >= 80 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' :
-                          inc.threat_score >= 60 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
-                          'bg-emerald-500/20 text-emerald-300'
-                        }`}>
-                          {inc.risk_breakdown?.risk_level || "LOW"} ({inc.threat_score})
-                        </span>
-                      </div>
-                      <p className="text-xs font-semibold text-slate-200 truncate">{inc.title}</p>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2">
-                        <span className="capitalize text-slate-300">Entity: {inc.primary_entity}</span>
-                        <span className="font-mono text-slate-500">{inc.layers_involved.length} Layers</span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8 text-slate-500 text-xs font-mono">
-                    No correlated incidents active.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Middle Row: Attack Graph (50%) + Explainable Risk Breakdown (50%) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <AttackGraph incident={activeIncident} />
-          <IncidentDetails incident={activeIncident} />
-        </div>
-
-        {/* Third Row: Attack Story Timeline (50%) + MITRE ATT&CK Matrix (50%) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <AttackTimeline incident={activeIncident} />
-          <MitreMatrix incident={activeIncident} />
-        </div>
-
-        {/* Fourth Row: Counterfactual Diff View + Analyst Controls */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <BaselineDiff incidentId={activeIncident?.incident_id} />
-          <AnalystActions incident={activeIncident} onRefreshIncident={fetchIncidents} />
-        </div>
-      </main>
-
-      {/* Model Report Modal */}
+      {/* ML Model Report Modal */}
       <MetricsModal isOpen={isMetricsOpen} onClose={() => setIsMetricsOpen(false)} />
     </div>
   );
