@@ -1,0 +1,752 @@
+================================================================================
+SENTINEL AI - REAL-TIME NETWORK TELEMETRY UPGRADE
+TECHNICAL APPROACH AND METHODOLOGY
+Presentation Notes / Slide Content
+================================================================================
+
+
+--------------------------------------------------------------------------------
+SLIDE 1 - TITLE
+--------------------------------------------------------------------------------
+
+SENTINEL AI
+AI-Based Cyber Threat Detection and Early-Warning Platform
+
+Technical Approach and Methodology
+Upgrade: Real-Time Authorized Network Packet Monitoring
+
+Positioning statement:
+  Sentinel AI converts scattered weak signals into one explainable,
+  evolving threat story - so analysts learn which behaviour is becoming
+  dangerous before they are buried in isolated alerts.
+
+
+--------------------------------------------------------------------------------
+SLIDE 2 - PROBLEM STATEMENT
+--------------------------------------------------------------------------------
+
+The problem is not detecting anomalies. It is deciding which anomalies matter.
+
+  * A modern SOC generates thousands of alerts per day
+  * Each alert is judged in isolation, so context is lost
+  * Individually weak signals look harmless on their own
+  * Analysts suffer alert fatigue and miss slow multi-stage attacks
+  * Black-box ML scores are not defensible in an audit
+
+Core research question:
+  How do we distinguish a harmless anomaly from the first stage of a
+  coordinated intrusion?
+
+Gap addressed by this upgrade:
+  The platform reasoned over ingested and replayed telemetry.
+  It could not observe real traffic on a live authorized network.
+
+
+--------------------------------------------------------------------------------
+SLIDE 3 - OBJECTIVE AND SCOPE
+--------------------------------------------------------------------------------
+
+PRIMARY OBJECTIVE
+  Extend Sentinel AI to ingest real-time network telemetry captured from an
+  authorized network interface, without replacing or breaking any part of the
+  existing detection, correlation, scoring or investigation architecture.
+
+IN SCOPE
+  * Live packet capture on an authorized host/interface
+  * Packet metadata extraction (headers only, no payload retention)
+  * Real-time source/destination IP tracking and statistics
+  * Rolling-window traffic aggregation into model-ready features
+  * Reuse of the existing Random Forest + Isolation Forest engine
+  * Network evidence feeding the existing threat-trajectory score
+  * Cross-layer correlation into a single incident
+  * New Live Network dashboard page in the existing design language
+  * Strict separation of DEMO/REPLAY data from LIVE telemetry
+
+OUT OF SCOPE - DELIBERATE
+  * Any scanning, probing or attacking of third-party systems
+  * Automatic modification of production firewalls (opt-in only, default off)
+  * Payload capture, content inspection or user surveillance
+  * Browser-side packet capture (technically impossible; capture is host-side)
+
+
+--------------------------------------------------------------------------------
+SLIDE 4 - EXISTING SYSTEM BASELINE (BUILD ON, DO NOT REBUILD)
+--------------------------------------------------------------------------------
+
+The upgrade extends a working platform. Verified current baseline:
+
+DETECTION ENGINE
+  * scikit-learn Random Forest - supervised, known attack classes
+  * scikit-learn Isolation Forest - unsupervised, novel/zero-day behaviour
+  * 12-dimensional feature vector (first 8 dimensions frozen for
+    backward compatibility with previously saved telemetry)
+  * 9 verdict classes with per-class confidence probabilities
+
+REASONING LAYERS
+  * Event normalization into a common event envelope
+  * Deterministic security rules engine
+  * Cross-layer correlator (network / endpoint / identity / application)
+  * Dynamic threat trajectory, 0-100, with full scoring audit trail
+  * MITRE ATT&CK technique and tactic mapping
+
+PLATFORM
+  * Backend  : FastAPI, REST, CORS, async, structured JSON logging
+  * Frontend : React 19 + Vite + Tailwind CSS + Recharts + Lucide
+  * Storage  : provider-neutral adapter - SQLite fallback, PostgreSQL primary
+  * Testing  : automated backend test suite, all passing
+
+DESIGN PRINCIPLE CARRIED FORWARD
+  ML contributes evidence. The security reasoning layer decides how evidence
+  combines into an incident. Every score stays traceable.
+
+
+--------------------------------------------------------------------------------
+SLIDE 5 - TARGET ARCHITECTURE
+--------------------------------------------------------------------------------
+
+  REAL NETWORK (authorized LAN / host)
+        |
+        v
+  NETWORK INTERFACE  (Ethernet / Wi-Fi, promiscuous where permitted)
+        |
+        v
+  PACKET CAPTURE  (background thread, BPF filter, bounded queue)
+        |
+        v
+  PACKET METADATA EXTRACTION  (headers only - no payload stored)
+        |
+        v
+  TRAFFIC AGGREGATION  (rolling windows: 1s / 5s / 30s / 60s)
+        |
+        v
+  FEATURE ENGINEERING  ->  FEATURE ADAPTER
+        |
+        v
+  SENTINEL AI DETECTION ENGINE
+  RULES  +  RANDOM FOREST  +  ISOLATION FOREST
+        |
+        v
+  THREAT SCORING  (existing 0-100 trajectory)
+        |
+        v
+  EVENT CORRELATION  ->  INCIDENT CREATION / ENRICHMENT
+        |
+        v
+  MITRE ATT&CK MAPPING
+        |
+        v
+  DATABASE  (metadata + aggregates, with retention)
+        |
+        v
+  LIVE FASTAPI  (REST polling, optional WebSocket/SSE)
+        |
+        v
+  REACT SOC DASHBOARD  ->  SOC ANALYST
+
+KEY ARCHITECTURAL RULE
+  Packet capture is a producer. The detection engine is a consumer.
+  They are decoupled by a bounded queue so capture never blocks the API
+  and a traffic spike degrades gracefully instead of freezing the console.
+
+
+--------------------------------------------------------------------------------
+SLIDE 6 - TECHNICAL APPROACH: LAYER 1-3 (OBSERVE)
+--------------------------------------------------------------------------------
+
+LAYER 1 - PACKET CAPTURE
+  Library      : Scapy (AsyncSniffer) over Npcap/libpcap
+  Execution    : dedicated background thread/service, never the request path
+  Filtering    : BPF capture filter applied at kernel level for efficiency
+  Control      : start / stop / status, restricted to admin & SOC roles
+  Safety       : capture only; the monitor never transmits crafted packets
+
+LAYER 2 - METADATA EXTRACTION
+  Extracted per packet:
+    timestamp, source_ip, destination_ip, source_port, destination_port,
+    protocol, packet_size, tcp_flags, interface, direction
+  Derived:
+    connection_id (5-tuple hash), session state, packet rate, byte rate
+  Privacy control:
+    Payload bytes are never persisted. Headers and counters only.
+
+LAYER 3 - TRAFFIC AGGREGATION
+  Rationale: a single packet carries almost no security meaning; behaviour
+  emerges only over time. Aggregation is what makes ML inference both
+  meaningful and computationally affordable.
+
+  Rolling windows: 1s (burst), 5s (rate), 30s (pattern), 60s (baseline)
+
+  Window features:
+    packets_per_second        bytes_per_second
+    connections_per_second    unique_source_ips
+    unique_destination_ips    unique_ports
+    tcp_syn_rate              failed_connections
+    connection_frequency      traffic_burst_rate
+    average_packet_size       protocol_distribution
+
+  All thresholds are configuration-driven, never hard-coded.
+
+
+--------------------------------------------------------------------------------
+SLIDE 7 - TECHNICAL APPROACH: THE FEATURE ADAPTER (CRITICAL)
+--------------------------------------------------------------------------------
+
+CONSTRAINT
+  The trained models expect a fixed, ordered 12-dimensional vector. Packet
+  headers cannot supply all 12 dimensions. Redefining a feature's meaning
+  would silently invalidate the trained models.
+
+SOLUTION - an explicit adapter with documented provenance per feature.
+
+  DERIVED DIRECTLY FROM NETWORK TELEMETRY (7 of 12)
+    packet_size              <- mean packet size in window
+    protocol_type            <- IP protocol / port heuristic
+    request_rate             <- connections or packets per second
+    session_duration         <- connection tracker lifetime
+    distinct_ports_touched   <- per-source-IP port cardinality (port scan)
+    outbound_bytes_ratio     <- egress/ingress byte ratio (C2 beaconing)
+    off_hours_access         <- capture timestamp vs business hours
+
+  NOT OBSERVABLE FROM PACKET HEADERS (5 of 12)
+    payload_pattern_score    <- application-layer telemetry
+    login_failure_rate       <- identity-layer telemetry
+    is_suspicious_process    <- endpoint-layer telemetry
+    privilege_level          <- identity/endpoint telemetry
+    url_entropy              <- DNS / HTTP host telemetry
+
+  HANDLING
+    Unavailable dimensions are filled with neutral baseline values and are
+    flagged as "not observed" rather than fabricated. When another layer
+    reports on the same entity, the correlator enriches the vector.
+
+WHY THIS MATTERS
+  The adapter keeps model inputs semantically honest. A network-only verdict
+  is explicitly a network-confidence verdict, not a false claim of
+  full-spectrum visibility.
+
+
+--------------------------------------------------------------------------------
+SLIDE 8 - TECHNICAL APPROACH: LAYER 4-6 (DECIDE)
+--------------------------------------------------------------------------------
+
+LAYER 4 - HYBRID DETECTION
+  Deterministic rules  -> transparent, tunable, security-expert encoded
+  Random Forest        -> known attack classes with class probabilities
+  Isolation Forest     -> deviation from learned normal, for novel behaviour
+
+  Three independent paths reduce single-method blind spots. Rules catch what
+  models miss; models catch what no rule anticipated.
+
+LAYER 5 - THREAT SCORING (EXISTING ENGINE REUSED)
+  Network detections produce evidence, not standalone severities.
+
+    Threat Score = Weighted Evidence
+                 + Cross-Layer Convergence
+                 + Temporal Sequence Strength
+                 + Asset Criticality
+                 - Benign Context
+    Normalized to 0-100  ->  LOW / MEDIUM / HIGH / CRITICAL
+
+  Escalation example:
+    network anomaly        -> 28
+    + port scan detected   -> 51
+    + suspicious login     -> 72
+    + malicious process    -> 91  = CRITICAL
+
+LAYER 6 - CORRELATION AND MITRE MAPPING
+  Shared entities link evidence: ip_address, host_id, user_id, process_id
+  Existing MITRE mapping is reused - no duplicate taxonomy is introduced.
+    Port scan / discovery      -> T1046
+    Credential attacks         -> T1110
+    Denial of service          -> T1498
+    External remote services   -> T1133
+    C2 / application protocol  -> T1071
+
+
+--------------------------------------------------------------------------------
+SLIDE 9 - LAYER SEPARATION: AN ENGINEERING INTEGRITY CONSTRAINT
+--------------------------------------------------------------------------------
+
+WHAT RAW IP PACKET HEADERS CAN RELIABLY INDICATE
+  * Port scanning and network reconnaissance
+  * DoS / DDoS-style volumetric and rate anomalies
+  * Beaconing and abnormal egress ratios
+  * Unusual destinations, ports, protocols, connection patterns
+  * Statistical deviation from a learned traffic baseline
+
+WHAT PACKET HEADERS ALONE CANNOT RELIABLY DETECT
+  * SQL Injection      - requires application request content
+  * XSS                - requires application request content
+  * Phishing           - requires email/URL/content context
+  * Malware payloads   - requires endpoint or file inspection
+
+CONSEQUENCE FOR THE DESIGN
+  Network monitoring augments the platform; it does not replace the
+  application, identity and endpoint telemetry paths. Encrypted traffic
+  further limits header-only inference - an honest constraint, not a defect.
+
+CORRELATED VALUE - the whole point of the platform
+
+    NETWORK      suspicious outbound connection
+       +
+    APPLICATION  SQL injection event
+       +
+    IDENTITY     off-hours privileged login
+       +
+    ENDPOINT     abnormal process spawn
+       =
+    ONE CORRELATED MULTI-STAGE INCIDENT
+
+
+--------------------------------------------------------------------------------
+SLIDE 10 - CORRELATION METHODOLOGY: NOISE INTO NARRATIVE
+--------------------------------------------------------------------------------
+
+ANTI-GOAL
+  A dashboard that renders one incident per packet is a denial-of-service
+  attack on the analyst.
+
+REDUCTION PIPELINE
+
+    ~100 packets
+        -> 1 traffic pattern        (aggregation window)
+        -> 1 network evidence item  (detection)
+        -> attached to 1 incident   (entity correlation)
+
+ENRICH-BEFORE-CREATE RULE
+  When new network evidence shares an entity with an open incident, it
+  enriches that incident and updates its trajectory. A new incident is
+  created only when no correlating entity exists.
+
+  Result: incident count tracks genuine campaigns, not traffic volume.
+
+OUTPUT ARTEFACTS FED BY CORRELATION
+  * Attack graph        - entity relationships, observed vs inferred
+  * Attack story        - chronological narrative timeline
+  * Evidence table      - contribution weight per signal
+  * MITRE coverage      - techniques observed across the campaign
+
+
+--------------------------------------------------------------------------------
+SLIDE 11 - BASELINE DEVIATION: THE "WHAT CHANGED?" METHOD
+--------------------------------------------------------------------------------
+
+Instead of asserting "this is anomalous", the platform answers
+"how does this differ from this entity's own normal behaviour?"
+
+  PROFILING
+    Per-entity rolling baselines over the 60s window and longer history
+
+  COMPARISON EXAMPLE
+    Normal    :  20 packets/sec
+    Current   : 450 packets/sec
+    Deviation : +2150%
+
+  ADDITIONAL DEVIATION SIGNALS
+    new destination IP          new destination port
+    new protocol                unusual traffic volume
+    unusual connection frequency  previously unseen source IP
+
+  Deviations surface directly in the existing Forensics view, so the
+  analyst sees what changed, when, and for which entity.
+
+
+--------------------------------------------------------------------------------
+SLIDE 12 - DETECTION METHODOLOGY BY BEHAVIOUR
+--------------------------------------------------------------------------------
+
+  BEHAVIOUR            PRIMARY SIGNAL                     METHOD
+  -------------------  ---------------------------------  -------------------
+  Port Scan            port cardinality per source IP     rule + RF
+  DoS / DDoS           packet & connection rate, burst    rule + RF
+  Brute Force          repeated auth attempts (identity)  rule + RF
+  Network Anomaly      baseline deviation                 Isolation Forest
+  Suspicious Conn.     unusual dst / port / protocol      rule + IF
+  C2 Beaconing         periodicity, egress byte ratio     RF + IF
+  Unauthorized Access  network + identity convergence     correlation
+
+  Every detection carries: class label, confidence, anomaly score,
+  contributing features, and inference latency - so it is explainable.
+
+
+--------------------------------------------------------------------------------
+SLIDE 13 - PERFORMANCE AND CONCURRENCY METHODOLOGY
+--------------------------------------------------------------------------------
+
+REQUIREMENT
+  Continuous capture must never freeze the SOC dashboard.
+
+TECHNIQUES APPLIED
+  * Background capture thread, fully decoupled from the API event loop
+  * Bounded queue with explicit drop-and-count under overload
+    (measured packet loss is reported, never hidden)
+  * Kernel-level BPF filtering to discard noise before user space
+  * Aggregation before inference - never per-packet model calls
+  * Batched database writes instead of per-packet inserts
+  * O(1) in-memory IP tracking structures with periodic pruning
+  * Configurable retention with scheduled cleanup
+
+ANTI-PATTERN EXPLICITLY AVOIDED
+
+    per-packet ML inference   ->  guaranteed collapse under real traffic
+
+CHOSEN PATH
+
+    packets -> aggregation -> feature window -> one inference
+
+
+--------------------------------------------------------------------------------
+SLIDE 14 - DEMO MODE VS LIVE MODE
+--------------------------------------------------------------------------------
+
+Two clearly labelled operating modes. Data provenance is never ambiguous.
+
+  DEMO / REPLAY MODE
+    Source     : scripted multi-stage attack replay engine
+    Purpose    : reproducible demonstration and training
+    Controls   : full replay, step-by-step, reset, accelerated
+    Labelling  : every artefact marked SIMULATED
+
+  LIVE NETWORK MODE
+    Source     : real packets from an authorized interface
+    Purpose    : genuine monitoring of an authorized network
+    Controls   : start / stop / status, role restricted
+    Labelling  : every artefact marked LIVE
+
+RULE
+  The two data sources are tagged at ingestion and never merged into an
+  unlabelled view. A demonstration can never be mistaken for real evidence.
+
+
+--------------------------------------------------------------------------------
+SLIDE 15 - SECURITY, PRIVACY AND AUTHORIZATION
+--------------------------------------------------------------------------------
+
+AUTHORIZATION
+  * Monitoring runs only on hosts/networks the operator is authorized to observe
+  * Start/stop controls restricted to admin and SOC roles
+  * No scanning, probing or offensive capability against third parties
+
+RESPONSE SAFETY
+  * All containment actions are sandboxed by default
+  * AUTO_BLOCK defaults to false
+  * Real enforcement requires explicit, documented opt-in configuration
+  * Every action is written to an audit trail
+
+PRIVACY BY DESIGN
+  * Header metadata and aggregates only - no payload persistence
+  * Minimum necessary collection for security analysis
+  * Documented retention window with automatic cleanup
+  * Collected fields are explicitly published
+
+SECRET HANDLING
+  * No credentials in source control
+  * Configuration supplied via environment variables
+  * Error messages sanitized so connection strings never reach a client
+
+
+--------------------------------------------------------------------------------
+SLIDE 16 - ERROR HANDLING AND OBSERVABILITY
+--------------------------------------------------------------------------------
+
+FAILURE MODES HANDLED EXPLICITLY
+  missing interface            invalid interface
+  insufficient capture rights  capture backend failure
+  monitor thread crash         queue saturation / packet loss
+  ML engine unavailable        database failure
+  backend disconnected         retention/cleanup failure
+
+PRINCIPLE
+  The dashboard reports degraded state honestly instead of displaying a
+  reassuring green light over a broken pipeline.
+
+MECHANISMS
+  * Structured single-line JSON logs suitable for SIEM ingestion
+  * Correlation ID on every response for request-to-log tracing
+  * Consistent error envelope: { error: { type, status, message } }
+  * Generic client-facing messages; internals stay server-side
+  * React error boundary isolates a failing view from the whole console
+  * Explicit offline banner when the detection API is unreachable
+
+
+--------------------------------------------------------------------------------
+SLIDE 17 - IMPLEMENTATION METHODOLOGY (PHASED, NON-BREAKING)
+--------------------------------------------------------------------------------
+
+Governing rule: every phase ends with the existing feature set still working.
+
+  PHASE 0 - BASELINE VERIFICATION
+    Capture current behaviour, confirm test suite green, record API contract
+
+  PHASE 1 - CAPTURE FOUNDATION
+    Packet monitor service, interface discovery, start/stop/status, queue
+
+  PHASE 2 - METADATA AND TRACKING
+    Header extraction, connection tracker, live IP statistics registry
+
+  PHASE 3 - AGGREGATION
+    Rolling windows, traffic feature computation, configurable thresholds
+
+  PHASE 4 - ML INTEGRATION
+    Feature adapter, provenance flags, reuse of existing RF + IF inference
+
+  PHASE 5 - REASONING INTEGRATION
+    Network evidence into trajectory scoring, correlation, MITRE mapping
+
+  PHASE 6 - PERSISTENCE
+    New tables, indexes, batched writes, retention enforcement
+
+  PHASE 7 - API SURFACE
+    Network endpoints following existing conventions, role protection
+
+  PHASE 8 - DASHBOARD
+    Live Network page reusing the existing design system and chart patterns
+
+  PHASE 9 - VALIDATION
+    Authorized lab testing, performance soak, regression of all prior features
+
+METHOD
+  Additive-first: new modules are introduced alongside existing ones and
+  wired in only once verified, so rollback is always a configuration flag.
+
+
+--------------------------------------------------------------------------------
+SLIDE 18 - API AND DATA MODEL EXTENSIONS
+--------------------------------------------------------------------------------
+
+API - extends the existing FastAPI surface, same conventions
+
+  GET   /api/network/status         monitor state, interface, counters
+  GET   /api/network/packets        recent packet metadata (paged, capped)
+  GET   /api/network/stats          window aggregates and rates
+  GET   /api/network/ips            per-IP intelligence and risk
+  GET   /api/network/connections    active connection table
+  GET   /api/network/threats        network detections with MITRE mapping
+  POST  /api/network/start          begin capture   (admin / SOC only)
+  POST  /api/network/stop           halt capture    (admin / SOC only)
+
+  All pre-existing endpoints remain unchanged and functional.
+
+DATABASE - additive tables, no destructive migration
+
+  network_events        packet metadata, retention bounded
+  network_connections   session/flow records
+  network_ip_stats      rolling per-IP counters and scores
+  network_threats       network detections and verdicts
+
+  Indexes: timestamp, source_ip, destination_ip, threat_type, risk_level
+  Retention: PACKET_RETENTION_MINUTES with scheduled cleanup
+
+REAL-TIME DELIVERY
+  Existing 2.5s polling is preserved as the guaranteed baseline.
+  WebSocket / SSE is layered on as an enhancement, never a replacement.
+
+
+--------------------------------------------------------------------------------
+SLIDE 19 - FRONTEND METHODOLOGY
+--------------------------------------------------------------------------------
+
+New "Live Network" page, consistent with the existing SOC design language.
+
+  NETWORK STATUS STRIP
+    monitoring indicator, interface, packets/sec, bytes/sec,
+    active connections, unique IPs, threat count, mode badge (LIVE / DEMO)
+
+  LIVE PACKET TABLE
+    time, source IP, destination IP, protocol, src port, dst port,
+    packet size, status
+
+  IP INTELLIGENCE TABLE
+    IP, packets, bytes, connections, ports, threat score, risk level
+
+  NETWORK THREATS TABLE
+    time, source IP, threat, confidence, threat score, risk,
+    MITRE technique, action
+
+  RECHARTS VISUALIZATIONS
+    packets/sec, bytes/sec, connections/sec, top source IPs,
+    top destination IPs, top ports, protocol distribution,
+    threat activity, anomaly score, threat trajectory
+
+REUSE OVER REINVENTION
+  Existing card surfaces, severity palette, badge classes, chart tooltip
+  pattern, notification system and error boundary are reused directly.
+  Network threats also surface in the existing Action Center and Forensics
+  views rather than in an isolated silo.
+
+
+--------------------------------------------------------------------------------
+SLIDE 20 - DEPLOYMENT ARCHITECTURE
+--------------------------------------------------------------------------------
+
+                        INTERNET / LAN
+                              |
+                              v
+                     Authorized Server / Host
+                              |
+                   +----------+----------+
+                   |                     |
+             FastAPI Backend       Packet Monitor
+                   |                     |
+                   +----------+----------+
+                              v
+                       Database Layer
+                              |
+                              v
+                      React Dashboard
+                              |
+                              v
+                        SOC Analyst
+
+CRITICAL DEPLOYMENT FACT
+  Packet capture executes on the host where the monitoring service holds
+  authorized interface access. The dashboard may be viewed remotely.
+  A browser cannot and does not capture network packets.
+
+PLATFORM SETUP
+
+  WINDOWS
+    * Install Npcap (WinPcap-compatible mode) for Scapy capture support
+    * Capture requires an elevated/Administrator service context
+    * Select the correct adapter; Wi-Fi monitor mode support varies by driver
+
+  LINUX
+    * Grant targeted capabilities instead of running everything as root:
+        setcap cap_net_raw,cap_net_admin+eip  <python interpreter path>
+    * Least privilege: only the capture component needs elevation
+    * Confirm interface name (ip link) before enabling monitoring
+
+ENVIRONMENT CONFIGURATION
+    NETWORK_MONITOR_ENABLED=true
+    NETWORK_INTERFACE=auto
+    PACKET_CAPTURE_FILTER=
+    PACKET_RETENTION_MINUTES=60
+    THREAT_THRESHOLD=70
+    AUTO_BLOCK=false
+  No secrets are hard-coded; all configuration is environment supplied.
+
+
+--------------------------------------------------------------------------------
+SLIDE 21 - TESTING METHODOLOGY (AUTHORIZED LAB ONLY)
+--------------------------------------------------------------------------------
+
+All tests are executed against the developer's own machine or an isolated lab.
+No third-party system is ever targeted.
+
+  TEST 1 - NORMAL TRAFFIC
+    ordinary local traffic -> captured and classified benign
+    EXPECT: statistics update, no unnecessary incident raised
+
+  TEST 2 - PORT SCAN BEHAVIOUR (self-directed)
+    many ports contacted on the local host
+    EXPECT: port cardinality rises -> port scan detected -> score increases
+            -> incident created or enriched -> dashboard alert -> T1046
+
+  TEST 3 - TRAFFIC BURST
+    abnormally high self-generated packet rate
+    EXPECT: burst/rate anomaly -> Isolation Forest deviation -> score rises
+
+  TEST 4 - CROSS-LAYER ATTACK
+    network anomaly + suspicious login + application event + endpoint event
+    EXPECT: one multi-stage incident with attack graph, timeline,
+            MITRE mapping and full scoring audit trail
+
+  REGRESSION SUITE
+    Automated backend tests plus verification that login, Overview,
+    Topology, Intel, Forensics, Action Center, Diagnostics, replay,
+    telemetry ingestion and persistence all still function.
+
+  PERFORMANCE SOAK
+    Continuous capture under sustained traffic while confirming dashboard
+    responsiveness, bounded memory, and reported packet-loss accuracy.
+
+
+--------------------------------------------------------------------------------
+SLIDE 22 - ACCEPTANCE CRITERIA
+--------------------------------------------------------------------------------
+
+  1.  Real authorized packets are captured                    LIVE mode only
+  2.  Source and destination IPs tracked in real time
+  3.  Packet metadata extracted (no payload retention)
+  4.  Traffic aggregated into model-compatible features
+  5.  Existing Random Forest + Isolation Forest reused
+  6.  Network anomalies generate evidence
+  7.  Evidence updates the existing threat trajectory
+  8.  Network events participate in cross-layer correlation
+  9.  Threats appear in the existing SOC dashboard
+  10. Live packet and IP statistics update automatically
+  11. MITRE mapping applied to applicable network behaviours
+  12. Forensics displays network evidence
+  13. Topology can display network entities
+  14. Action Center exposes network response options
+  15. DEMO replay and LIVE monitoring remain clearly separated
+  16. No fabricated packet data in LIVE mode
+  17. No unauthorized scanning capability exists
+  18. Platform remains stable under continuous monitoring
+
+
+--------------------------------------------------------------------------------
+SLIDE 23 - TECHNOLOGY STACK
+--------------------------------------------------------------------------------
+
+  Capture / Network   Scapy, Npcap (Windows), libpcap (Linux), BPF filters
+  Machine Learning    scikit-learn - Random Forest, Isolation Forest
+  Data Processing     pandas, NumPy, SMOTE class rebalancing
+  Backend             Python, FastAPI, Pydantic, Uvicorn, threading
+  Persistence         SQLite fallback, PostgreSQL primary, indexed schema
+  Frontend            React 19, Vite, Tailwind CSS, Recharts, Lucide
+  Observability       structured JSON logging, correlation IDs
+  Threat Framework    MITRE ATT&CK
+  Reference Datasets  CIC-IDS2017, NSL-KDD
+
+
+--------------------------------------------------------------------------------
+SLIDE 24 - KNOWN LIMITATIONS (STATED HONESTLY)
+--------------------------------------------------------------------------------
+
+  * Encrypted traffic limits header-only inference; payload-derived features
+    remain unavailable without endpoint or application telemetry
+  * Header data alone cannot confirm SQLi, XSS, phishing or malware payloads
+  * Elevated privileges are required for capture on both Windows and Linux
+  * Wi-Fi promiscuous/monitor capture depends on adapter and driver support
+  * A single host observes only traffic visible at its interface; full
+    network visibility requires SPAN/mirror ports or distributed sensors
+  * Under extreme load the bounded queue drops packets by design; loss is
+    measured and reported rather than concealed
+  * Adaptive-defense reward modelling is a research simulation, not a
+    trained production reinforcement-learning agent
+  * Synthetic training distributions approximate benchmark datasets and are
+    not a substitute for validation on the target production environment
+
+FUTURE SCOPE
+  Distributed sensor fleet, streaming ingestion, online baseline adaptation,
+  graph-based attack-path reasoning, threat-intel enrichment, SIEM/SOAR
+  integration, analyst feedback loops for continuous model improvement.
+
+
+--------------------------------------------------------------------------------
+SLIDE 25 - CLOSING SUMMARY
+--------------------------------------------------------------------------------
+
+  APPROACH
+    Extend, never replace. Real telemetry is fed into the proven reasoning
+    pipeline through an explicit, semantically honest feature adapter.
+
+  METHODOLOGY
+    Phased and additive, with layer separation, aggregation before inference,
+    correlation before alerting, and verification at every phase boundary.
+
+  OUTCOME
+    Sentinel AI observes a real authorized network, converts raw packets into
+    correlated and explainable incidents, and preserves every existing
+    investigation capability.
+
+  DIFFERENTIATOR
+    Not another alert generator. A system that makes existing signals
+    meaningful - and shows its reasoning.
+
+================================================================================
+END OF DOCUMENT
+Defensive research and demonstration platform.
+Response actions are sandboxed by default.
+================================================================================

@@ -11,10 +11,12 @@ from .dataset_generator import generate_synthetic_dataset, rebalance_dataset, FE
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "saved_models")
 
-def train_and_evaluate_models(num_samples: int = 3000) -> Dict[str, Any]:
+def train_and_evaluate_models(num_samples: int = 6000) -> Dict[str, Any]:
     """
     Trains RandomForestClassifier (Known attacks) & IsolationForest (Zero-day / Anomaly detection),
     saves them to disk, and computes full validation metrics.
+
+    Operates on the 12-feature / 9-class feature space defined in dataset_generator.
     """
     os.makedirs(MODEL_DIR, exist_ok=True)
     
@@ -44,8 +46,12 @@ def train_and_evaluate_models(num_samples: int = 3000) -> Dict[str, Any]:
     y_pred = rf_clf.predict(X_test)
     y_proba = rf_clf.predict_proba(X_test)
     
+    # Explicit label list keeps the confusion matrix square (9x9) and aligned with
+    # ATTACK_LABELS even if a class were ever missing from a test split.
+    class_indices = list(range(len(ATTACK_LABELS)))
+
     prec, rec, f1, _ = precision_recall_fscore_support(y_test, y_pred, average="weighted")
-    cm = confusion_matrix(y_test, y_pred).tolist()
+    cm = confusion_matrix(y_test, y_pred, labels=class_indices).tolist()
     
     # Calculate False Positive Rate (FPR) for Benign (class 0)
     # FPR = FP / (FP + TN)
@@ -56,8 +62,10 @@ def train_and_evaluate_models(num_samples: int = 3000) -> Dict[str, Any]:
     
     report_dict = classification_report(
         y_test, y_pred,
-        target_names=[ATTACK_LABELS[i] for i in range(len(ATTACK_LABELS))],
-        output_dict=True
+        labels=class_indices,
+        target_names=[ATTACK_LABELS[i] for i in class_indices],
+        output_dict=True,
+        zero_division=0
     )
     
     # Feature importances
@@ -81,6 +89,8 @@ def train_and_evaluate_models(num_samples: int = 3000) -> Dict[str, Any]:
     
     metrics = {
         "dataset_name": "NSL-KDD / CIC-IDS2017 Feature Distribution",
+        "num_classes": len(ATTACK_LABELS),
+        "num_features": len(FEATURE_NAMES),
         "total_samples": len(df),
         "train_samples": len(X_train_res),
         "test_samples": len(X_test),

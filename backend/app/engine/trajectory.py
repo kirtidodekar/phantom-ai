@@ -140,14 +140,13 @@ class ThreatTrajectoryEngine:
         # A. Sum of evidence contributions
         evidence_score = sum(e.contribution_score for e in incident.evidences)
 
-        # B. Cross-Layer Diversity Bonus
-        # 1 layer = 0, 2 layers = +12, 3 layers = +25
-        num_layers = len(incident.layers_involved)
-        cross_layer_bonus = 0.0
-        if num_layers == 2:
-            cross_layer_bonus = 12.0
-        elif num_layers >= 3:
-            cross_layer_bonus = 25.0
+        # B. Cross-Layer Diversity Bonus across the FOUR telemetry layers
+        # (network / endpoint / identity / application).
+        # 1 layer = 0, 2 = +12, 3 = +25, 4 = +32
+        # Convergence across all four layers is the strongest structural
+        # signal the platform can observe, so it earns the largest bonus.
+        num_layers = len(set(incident.layers_involved))
+        cross_layer_bonus = {0: 0.0, 1: 0.0, 2: 12.0, 3: 25.0}.get(num_layers, 32.0)
 
         # C. Temporal Sequence Strength
         # Score escalates as event count grows in active window
@@ -257,6 +256,24 @@ class ThreatTrajectoryEngine:
                         target=proc_node_id,
                         relationship="executed_process",
                         layer="endpoint"
+                    ))
+            elif ev.event.layer == "application":
+                endpoint_path = detail.get("url") or detail.get("api_endpoint") or "/"
+                api_node_id = f"api:{str(endpoint_path)[:60]}"
+                if api_node_id not in nodes:
+                    nodes[api_node_id] = AttackGraphNode(
+                        id=api_node_id,
+                        label=str(endpoint_path)[:60],
+                        type="api",
+                        layer="application",
+                        status="compromised" if ev.rule_name else "suspicious"
+                    )
+                    edges.append(AttackGraphEdge(
+                        id=f"e-{host_id}-{api_node_id}",
+                        source=host_id,
+                        target=api_node_id,
+                        relationship="requested_endpoint",
+                        layer="application"
                     ))
             elif ev.event.layer == "network":
                 dest_ip = detail.get("dest_ip", "198.51.100.42")

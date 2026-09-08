@@ -30,7 +30,7 @@ class SecurityRulesEngine:
                 }
 
         # 2. Network/Application Layer: SQL Injection Rule
-        if layer in ["network", "identity"] or "payload" in detail or "url" in detail:
+        if layer in ["network", "identity", "application"] or "payload" in detail or "url" in detail:
             payload = str(detail.get("payload", "")) + " " + str(detail.get("url", ""))
             sql_keywords = [r"UNION\s+SELECT", r"OR\s+1=1", r"--", r"DROP\s+TABLE", r"SELECT\s+.*\s+FROM"]
             for pattern in sql_keywords:
@@ -47,7 +47,7 @@ class SecurityRulesEngine:
                     }
 
         # 3. Network/Application Layer: XSS Rule
-        if layer in ["network", "identity"] or "payload" in detail:
+        if layer in ["network", "identity", "application"] or "payload" in detail:
             payload = str(detail.get("payload", ""))
             xss_keywords = [r"<script.*?>", r"javascript:", r"onerror\s*=", r"onload\s*="]
             for pattern in xss_keywords:
@@ -64,6 +64,33 @@ class SecurityRulesEngine:
                     }
 
         # 4. Network Layer: DDoS Rate Threshold Rule
+        # 4b. Application Layer: HTTP error-rate / enumeration signal
+        if layer == "application":
+            status = int(detail.get("status_code", 200) or 200)
+            err_rate = float(detail.get("error_rate", 0.0) or 0.0)
+            if status in (401, 403) and err_rate >= 0.5:
+                return {
+                    "rule_name": "Application Authorization Failure Burst",
+                    "severity": "MEDIUM",
+                    "attack_type": "Unauthorized Access",
+                    "weight": 18.0,
+                    "mitre_tactic": "Initial Access",
+                    "mitre_technique": "Valid Accounts",
+                    "mitre_id": "T1078",
+                    "description": f"Repeated HTTP {status} responses ({err_rate:.0%} of requests) indicate authorization probing."
+                }
+            if status >= 500 and err_rate >= 0.4:
+                return {
+                    "rule_name": "Application Error Spike",
+                    "severity": "MEDIUM",
+                    "attack_type": "Anomaly",
+                    "weight": 14.0,
+                    "mitre_tactic": "Impact",
+                    "mitre_technique": "Application Exploitation Attempt",
+                    "mitre_id": "T1499",
+                    "description": f"Server-side error rate {err_rate:.0%} suggests exploitation attempts or instability."
+                }
+
         if layer == "network":
             req_rate = detail.get("request_rate", detail.get("req_per_sec", 0.0))
             if req_rate > 150.0:

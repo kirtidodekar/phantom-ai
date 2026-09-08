@@ -62,27 +62,28 @@ export default function AnalystActions({ incident, onRefreshIncident }) {
   };
 
   return (
-    <div className="glass-card rounded-2xl p-5 border border-slate-800 shadow-xl space-y-4">
+    <div className="soc-surface rounded-2xl p-5 border border-[#D9E0E8] space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <Sliders className="w-5 h-5 text-cyan-400" />
-          <h2 className="text-base font-semibold text-slate-100">Analyst Controls & Sandboxed Response</h2>
+          <Sliders className="w-5 h-5 text-blue-600" />
+          <h2 className="text-sm font-bold text-slate-900">Analyst Controls & Sandboxed Response</h2>
         </div>
-        <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/30">
-          Safety Isolated
+        <span className="text-xs font-mono font-bold badge-success px-2.5 py-1 rounded-lg flex items-center space-x-1.5">
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Safety Isolated</span>
         </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 1. Sandboxed Actions */}
-        <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2.5">
-          <span className="text-xs font-bold text-slate-200 block uppercase">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+          <span className="text-xs font-bold text-slate-900 block uppercase">
             1. One-Click Mitigation Action
           </span>
           <div className="flex flex-col gap-2">
             <button
               onClick={() => handleSimulateBlock('ISOLATE_HOST', 'WKS-042')}
-              className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-semibold transition active:scale-95"
+              className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition active:scale-95"
             >
               <Lock className="w-3.5 h-3.5" />
               <span>Simulate Isolate Host (WKS-042)</span>
@@ -90,7 +91,7 @@ export default function AnalystActions({ incident, onRefreshIncident }) {
 
             <button
               onClick={() => handleSimulateBlock('BLOCK_IP', '198.51.100.99')}
-              className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition active:scale-95"
+              className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-semibold transition active:scale-95"
             >
               <ShieldAlert className="w-3.5 h-3.5" />
               <span>Simulate Block C2 IP (198.51.100.99)</span>
@@ -99,8 +100,8 @@ export default function AnalystActions({ incident, onRefreshIncident }) {
         </div>
 
         {/* 2. Asset Criticality Context */}
-        <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2.5">
-          <span className="text-xs font-bold text-slate-200 block uppercase">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+          <span className="text-xs font-bold text-slate-900 block uppercase">
             2. Asset Criticality Weight
           </span>
           <div className="flex items-center space-x-2">
@@ -108,8 +109,8 @@ export default function AnalystActions({ incident, onRefreshIncident }) {
               onClick={() => handleToggleCriticality('Standard')}
               className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold border transition ${
                 criticality === 'Standard'
-                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
-                  : 'bg-slate-950 text-slate-500 border-slate-800'
+                  ? 'bg-blue-50 text-blue-700 border-blue-300'
+                  : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
               }`}
             >
               Standard Asset
@@ -118,8 +119,8 @@ export default function AnalystActions({ incident, onRefreshIncident }) {
               onClick={() => handleToggleCriticality('High Value Target')}
               className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold border transition ${
                 criticality === 'High Value Target'
-                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-md shadow-purple-900/30'
-                  : 'bg-slate-950 text-slate-500 border-slate-800'
+                  ? 'bg-violet-50 text-violet-700 border-violet-300 shadow-xs'
+                  : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
               }`}
             >
               High Value Target (+15)
@@ -128,27 +129,27 @@ export default function AnalystActions({ incident, onRefreshIncident }) {
         </div>
 
         {/* 3. Analyst Feedback Loop */}
-        <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2.5">
-          <span className="text-xs font-bold text-slate-200 block uppercase">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+          <span className="text-xs font-bold text-slate-900 block uppercase">
             3. Detection Feedback Loop
           </span>
           {feedbackSubmitted ? (
-            <div className="flex items-center space-x-2 text-emerald-400 text-xs font-semibold p-2 rounded bg-emerald-500/10 border border-emerald-500/30">
-              <CheckCircle className="w-4 h-4" />
+            <div className="flex items-center space-x-2 text-emerald-700 text-xs font-semibold p-2 rounded bg-emerald-50 border border-emerald-200">
+              <CheckCircle className="w-4 h-4 text-emerald-600" />
               <span>Feedback logged into tuning engine!</span>
             </div>
           ) : (
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => handleFeedback('USEFUL')}
-                className="flex-1 py-2 px-3 rounded-lg bg-emerald-950/80 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-500/40 text-xs font-semibold flex items-center justify-center space-x-1.5"
+                className="flex-1 py-2 px-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold flex items-center justify-center space-x-1.5 transition"
               >
                 <ThumbsUp className="w-3.5 h-3.5" />
                 <span>True Positive</span>
               </button>
               <button
                 onClick={() => handleFeedback('FALSE_POSITIVE')}
-                className="flex-1 py-2 px-3 rounded-lg bg-rose-950/80 hover:bg-rose-900/80 text-rose-300 border border-rose-500/40 text-xs font-semibold flex items-center justify-center space-x-1.5"
+                className="flex-1 py-2 px-3 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold flex items-center justify-center space-x-1.5 transition"
               >
                 <ThumbsDown className="w-3.5 h-3.5" />
                 <span>False Positive</span>
@@ -160,9 +161,9 @@ export default function AnalystActions({ incident, onRefreshIncident }) {
 
       {/* Sandboxed Action Output Log */}
       {actionLog && (
-        <div className="p-3.5 rounded-xl bg-slate-950 border border-cyan-500/30 text-xs font-mono text-cyan-300 animate-fadeIn flex items-center justify-between">
+        <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-xs font-mono font-semibold text-blue-800 animate-fadeIn flex flex-wrap items-center justify-between gap-2">
           <span>{actionLog.message}</span>
-          <span className="text-[10px] text-slate-500 uppercase px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/20">
+          <span className="text-[10px] text-slate-600 uppercase px-2 py-0.5 rounded bg-white border border-slate-200">
             Audit Log ID: {actionLog.action_id}
           </span>
         </div>

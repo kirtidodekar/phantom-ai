@@ -1,9 +1,10 @@
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from .schemas import (
     NormalizedEvent, Incident, ModelEvaluationMetrics,
@@ -11,8 +12,21 @@ from .schemas import (
 )
 from .engine.correlator import CrossLayerCorrelator
 from .engine.replay import IncidentReplayEngine
+from .engine.live_detection import LiveDetectionEngine, CLASS_CATALOG, MITRE_TECHNIQUE_MAP
+from .engine.integrations import get_integrations_status
 from .ml.models import ThreatDetectionModels
-from .database import init_db, save_feedback, log_sandboxed_action, get_sandboxed_actions
+from .database import (
+    get_database_status,
+    get_sandboxed_actions,
+    init_db,
+    log_sandboxed_action,
+    save_feedback,
+)
+from .observability import configure_logging, install_observability, log_event
+from .network.routes import router as network_router
+from .network.monitor import NetworkMonitorService
+from .sensors.routes import router as sensors_router
+from .sensors.manager import SensorManager
 
 app = FastAPI(
     title="Sentinel-AI Cyber Threat Detection & Early-Warning API",
@@ -29,15 +43,115 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Structured JSON logging, request tracing and centralized error envelopes.
+configure_logging()
+install_observability(app)
+
 # Core singletons
 correlator = CrossLayerCorrelator()
 replay_engine = IncidentReplayEngine(correlator)
+live_engine = LiveDetectionEngine.get_instance()
+
+# Live network monitoring service. It receives the SAME correlator instance the
+# replay engine uses, so real network evidence and simulated telemetry flow
+# through one correlation/scoring engine (never two competing pipelines).
+network_monitor = NetworkMonitorService.get_instance(correlator=correlator)
+
+# Network telemetry routes (/api/network/*). Existing routes are untouched.
+app.include_router(network_router)
+
+# Endpoint + application sensors share the SAME correlator, so evidence from all
+# four telemetry layers converges in one correlation and scoring engine.
+sensor_manager = SensorManager.get_instance(correlator=correlator)
+app.include_router(sensors_router)
 
 @app.on_event("startup")
 def on_startup():
-    init_db()
-    # Pre-run replay engine once so dashboard starts with rich live data immediately
-    replay_engine.run_full_replay()
+    """
+    Boots persistence and seeds the correlation engine.
+
+    Persistence failures are logged and re-raised so a misconfigured database
+    surfaces immediately rather than silently degrading. Seeding the replay is
+    best-effort: the API stays available even if demo data cannot be generated.
+    """
+    # Persistence is initialized best-effort. A database outage must NOT take
+    # the SOC platform offline: detection, correlation, scoring and replay all
+    # operate in memory. The failure is logged and surfaced through
+    # /api/health -> database so the dashboard reports degraded state honestly
+    # instead of pretending everything is fine.
+    try:
+        init_db()
+        status = get_database_status()
+        log_event(
+            "info",
+            "database_ready",
+            db_backend=status.get("backend"),
+            schema=status.get("schema"),
+        )
+    except Exception:
+        status = get_database_status()
+        log_event(
+            "error",
+            "database_initialization_failed",
+            db_backend=status.get("backend"),
+            db_error=status.get("error"),
+            impact="persistence_disabled_api_still_serving",
+        )
+
+    # Demo seeding is OPT-IN. When disabled (the default) the platform starts
+    # with an EMPTY incident set so the dashboard shows only real observed
+    # telemetry. Simulated replay remains fully available on demand through the
+    # /api/replay/* endpoints and the navbar controls.
+    if os.getenv("DEMO_SEED_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        try:
+            replay_engine.run_full_replay()
+            log_event(
+                "warning",
+                "replay_seeded_simulated_data",
+                incidents=len(correlator.trajectory_engine.active_incidents),
+                note="incidents are flagged is_simulated=true",
+            )
+        except Exception:
+            log_event("warning", "replay_seed_failed")
+    else:
+        log_event("info", "demo_seed_disabled", note="starting with real telemetry only")
+
+    # Prepare network telemetry tables and optionally auto-start capture.
+    try:
+        from .network import persistence as network_persistence
+        table_status = network_persistence.init_network_tables()
+        log_event("info", "network_tables_ready",
+                  initialized=table_status.get("initialized"),
+                  db_error=table_status.get("error"))
+    except Exception:
+        log_event("warning", "network_tables_init_failed")
+
+    if network_monitor.config.enabled:
+        try:
+            started = network_monitor.start()
+            log_event("info", "network_autostart_ok", interface=started.get("interface"))
+        except Exception as error:
+            # Capture problems must never prevent the API from serving.
+            log_event("warning", "network_autostart_failed", reason=str(error)[:200])
+    else:
+        log_event("info", "network_monitor_disabled",
+                  hint="Set NETWORK_MONITOR_ENABLED=true to enable live capture")
+
+    # Optional auto-start for the endpoint and application sensors. Failures are
+    # logged and never block the API from serving.
+    for sensor_name, sensor_obj, flag in (
+        ("endpoint", sensor_manager.endpoint, "ENDPOINT_SENSOR_ENABLED"),
+        ("application", sensor_manager.application, "APPLICATION_SENSOR_ENABLED"),
+    ):
+        if os.getenv(flag, "false").strip().lower() in {"1", "true", "yes", "on"}:
+            try:
+                sensor_obj.start()
+                log_event("info", "sensor_autostart_ok", sensor=sensor_name)
+            except Exception as error:
+                log_event("warning", "sensor_autostart_failed",
+                          sensor=sensor_name, reason=str(error)[:200])
+
+    log_event("info", "api_startup_complete")
 
 @app.get("/api/health")
 def get_health():
@@ -45,7 +159,8 @@ def get_health():
         "status": "ONLINE",
         "system": "Sentinel-AI Threat Trajectory Platform",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "active_incidents_count": len(correlator.trajectory_engine.active_incidents)
+        "active_incidents_count": len(correlator.trajectory_engine.active_incidents),
+        "database": get_database_status(),
     }
 
 @app.post("/api/telemetry/ingest")
@@ -195,3 +310,157 @@ def get_baseline_diff(incident_id: str):
             "Database query contained SQL keyword signatures & payload anomaly"
         ]
     }
+
+# ===========================================================================
+# Live Detection API (9-class classifier, 12-feature vector)
+# ===========================================================================
+
+class PredictRequest(BaseModel):
+    """
+    Body for POST /api/detect/predict.
+
+    Either send `{"detail": {...feature fields...}}` or post a bare feature dict -
+    any keys outside of `detail` / `source_ip` / `layer` are collected as the detail
+    payload so simple clients can post features at the top level.
+    """
+    model_config = ConfigDict(extra="allow")
+
+    detail: Optional[Dict[str, Any]] = None
+    source_ip: Optional[str] = None
+    layer: Optional[str] = None
+
+    def resolved_detail(self) -> Dict[str, Any]:
+        if self.detail:
+            return dict(self.detail)
+        return dict(self.model_extra or {})
+
+
+@app.post("/api/detect/predict")
+def detect_predict(req: PredictRequest):
+    """
+    Scores a single event with the trained RandomForest (9 classes) + IsolationForest
+    models and returns the fused risk assessment, MITRE mapping and recommended
+    (sandboxed) response action.
+    """
+    try:
+        result = live_engine.analyze(
+            detail=req.resolved_detail(),
+            source_ip=req.source_ip,
+            layer=req.layer
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Prediction failed: {e}")
+
+    # Strip engine-internal fields that are not part of the public contract
+    return {k: v for k, v in result.items() if not k.startswith("_")}
+
+
+@app.get("/api/detect/stream")
+def detect_stream(count: int = 6):
+    """
+    Generates a batch of simulated live telemetry events (benign majority), scores each
+    with the real models, and returns the detection rows. `count` is clamped to 1-50.
+    """
+    return live_engine.generate_stream(count)
+
+
+@app.get("/api/detect/classes")
+def detect_classes():
+    """Returns the 9 supported threat classes with MITRE mapping and layer hints."""
+    classes = []
+    for entry in CLASS_CATALOG:
+        mitre = MITRE_TECHNIQUE_MAP.get(entry["name"])
+        classes.append({
+            "id": entry["id"],
+            "name": entry["name"],
+            "description": entry["description"],
+            "mitre_id": mitre["technique_id"] if mitre else None,
+            "layer": entry["layer"],
+            "severity_hint": entry["severity_hint"]
+        })
+    return {"classes": classes}
+
+
+@app.get("/api/stats/overview")
+def stats_overview():
+    """Rolling live-detection analytics: EPS, class/severity histograms, latency, accuracy."""
+    return live_engine.stats_overview()
+
+
+# ===========================================================================
+# Sandboxed Automated Defense API (auto-block list + adaptive DRL policy)
+# ===========================================================================
+
+class BlockRequest(BaseModel):
+    """Body for POST /api/defense/block. Everything except `ip` is optional."""
+    ip: str = Field(..., description="Target IPv4/IPv6 address to block (sandboxed)")
+    attack_type: Optional[str] = None
+    risk_score: Optional[float] = None
+    confidence: Optional[float] = None
+    reason: Optional[str] = None
+    mode: Optional[str] = None  # AUTO | MANUAL (defaults to MANUAL)
+
+
+class DefenseConfigRequest(BaseModel):
+    """Body for POST /api/defense/config. All fields optional (partial update)."""
+    auto_block_enabled: Optional[bool] = None
+    threshold: Optional[float] = None
+    adaptive_enabled: Optional[bool] = None
+
+
+@app.get("/api/defense/blocklist")
+def get_blocklist():
+    """Current sandboxed blocklist plus the active auto-block configuration."""
+    return live_engine.get_blocklist()
+
+
+@app.post("/api/defense/block")
+def create_block(req: BlockRequest):
+    """
+    Adds (or escalates) a sandboxed block for an IP. No real firewall/OS networking is
+    touched - the action is recorded in the sandboxed-actions audit table only.
+    """
+    if not req.ip or not req.ip.strip():
+        raise HTTPException(status_code=400, detail="Field 'ip' must not be empty")
+    return live_engine.manual_block(
+        ip=req.ip.strip(),
+        attack_type=req.attack_type,
+        risk_score=req.risk_score,
+        confidence=req.confidence,
+        reason=req.reason,
+        mode=req.mode
+    )
+
+
+@app.delete("/api/defense/block/{ip}")
+def delete_block(ip: str):
+    """Removes an IP from the sandboxed blocklist."""
+    if not live_engine.unblock(ip):
+        raise HTTPException(status_code=404, detail=f"IP {ip} is not in the blocklist")
+    return {"status": "UNBLOCKED", "ip": ip}
+
+
+@app.post("/api/defense/config")
+def update_defense_config(req: DefenseConfigRequest):
+    """Partially updates the auto-block configuration and returns the new configuration."""
+    return live_engine.update_config(
+        auto_block_enabled=req.auto_block_enabled,
+        threshold=req.threshold,
+        adaptive_enabled=req.adaptive_enabled
+    )
+
+
+@app.get("/api/defense/policy")
+def get_defense_policy():
+    """Simulated Deep Q-Network adaptive response policy state (research simulation)."""
+    return live_engine.policy_snapshot()
+
+
+# ===========================================================================
+# Integration Fabric (SIEM / Cloud / IoT) - representative simulated inventory
+# ===========================================================================
+
+@app.get("/api/integrations/status")
+def integrations_status():
+    """SIEM forwarder, cloud ingest and IoT/OT fleet status for the integrations view."""
+    return get_integrations_status()

@@ -1,0 +1,11 @@
+fail aws-0-ap-south-1.pooler.supabase.com :: connection failed: connection to server at "65.0.195.55", port 5432 failed: FATA
+fail aws-0-ap-southeast-1.pooler.supabase.com :: connection failed: connection to server at "52.74.252.201", port 5432 failed: FA
+fail aws-0-us-east-1.pooler.supabase.com :: connection failed: connection to server at "44.216.29.125", port 5432 failed: FA
+fail aws-0-us-east-2.pooler.supabase.com :: connection failed: connection to server at "3.13.175.194", port 5432 failed: FAT
+fail aws-0-eu-central-1.pooler.supabase.com :: connection failed: connection to server at "52.59.152.35", port 5432 failed: FAT
+fail aws-0-eu-west-1.pooler.supabase.com :: connection failed: connection to server at "108.128.216.176", port 5432 failed: 
+fail aws-0-eu-west-2.pooler.supabase.com :: connection failed: connection to server at "18.135.253.94", port 5432 failed: FA
+fail aws-0-us-west-1.pooler.supabase.com :: connection failed: connection to server at "52.8.172.168", port 5432 failed: FAT
+fail aws-0-us-west-2.pooler.supabase.com :: connection failed: connection to server at "35.160.209.8", port 5432 failed: FAT
+SUCCESS aws-0-ap-northeast-1.pooler.supabase.com
+RESULT=aws-0-ap-northeast-1.pooler.supabase.com

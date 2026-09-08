@@ -38,6 +38,36 @@ MITRE_DATABASE = {
         "technique_id": "T1068",
         "description": "Adversaries may exploit software vulnerabilities in an attempt to elevated privileges."
     },
+    "Probe / Reconnaissance": {
+        "tactic": "Discovery",
+        "technique": "Network Service Discovery",
+        "technique_id": "T1046",
+        "description": "Adversaries may enumerate reachable hosts, services and open ports to plan follow-on activity."
+    },
+    "Malware / C2 Beaconing": {
+        "tactic": "Command and Control",
+        "technique": "Application Layer Protocol",
+        "technique_id": "T1071",
+        "description": "Adversaries may use application layer protocols for command-and-control traffic that blends with normal activity."
+    },
+    "Phishing": {
+        "tactic": "Initial Access",
+        "technique": "Phishing",
+        "technique_id": "T1566",
+        "description": "Adversaries may send malicious content to obtain credentials or execute code on a target host."
+    },
+    "Unauthorized Access": {
+        "tactic": "Initial Access",
+        "technique": "Valid Accounts / External Remote Services",
+        "technique_id": "T1078",
+        "description": "Adversaries may use legitimate credentials or exposed remote services to access systems without authorization."
+    },
+    "Network Denial of Service": {
+        "tactic": "Impact",
+        "technique": "Network Denial of Service",
+        "technique_id": "T1498",
+        "description": "Adversaries may degrade availability by saturating network bandwidth or connection capacity."
+    },
     "Anomaly": {
         "tactic": "Defense Evasion",
         "technique": "Obfuscated Files or Information / Zero-Day Pattern",

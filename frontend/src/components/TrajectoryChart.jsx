@@ -43,7 +43,9 @@ export default function TrajectoryChart({ incident }) {
             <h2 className="text-base font-bold text-slate-900">Threat Trajectory & Escalation Curve</h2>
           </div>
           <p className="text-xs text-slate-600 mt-0.5">
-            Real-time stateful risk trajectory evolving across Network, Endpoint, and Identity layers.
+            {incident.is_simulated
+              ? 'Simulated replay scenario — not observed network traffic.'
+              : 'Observed telemetry: stateful risk trajectory across the fused layers.'}
           </p>
         </div>
 
@@ -112,7 +114,7 @@ export default function TrajectoryChart({ incident }) {
           <Layers className="w-4 h-4 text-blue-600" />
           <span className="font-medium">Fused Telemetry Layers:</span>
           <div className="flex items-center space-x-1.5">
-            {['identity', 'endpoint', 'network'].map(layer => {
+            {['identity', 'endpoint', 'network', 'application'].map(layer => {
               const active = incident.layers_involved.includes(layer);
               return (
                 <span

@@ -1,8 +1,10 @@
 import React from 'react';
 import {
   ShieldAlert, Play, SkipForward, RotateCcw,
-  LayoutDashboard, Network, Target, GitCompare, Sliders, Cpu, ChevronDown, Home, UserCheck, Search
+  LayoutDashboard, Network, Target, GitCompare, Sliders, Cpu, ChevronDown, Home, UserCheck, Search,
+  Activity, Shield, Layers, Plug, Radio, Layers3
 } from 'lucide-react';
+import NotificationCenter from './NotificationCenter';
 
 export default function Navbar({
   activeTab,
@@ -24,11 +26,17 @@ export default function Navbar({
 }) {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'monitor', label: 'Live Monitor', icon: Activity },
+    { id: 'network', label: 'Live Network', icon: Radio },
+    { id: 'coverage', label: 'Coverage', icon: Layers3 },
     { id: 'topology', label: 'Attack Path', icon: Network, badge: activeIncidentLayersCount(incidents, selectedIncidentId) },
     { id: 'intel', label: 'Threat Story', icon: Target },
     { id: 'forensics', label: 'Forensics', icon: GitCompare },
     { id: 'actions', label: 'Response', icon: Sliders },
+    { id: 'defense', label: 'Auto Defense', icon: Shield },
+    { id: 'classification', label: 'Threat Classes', icon: Layers },
     { id: 'diagnostics', label: 'Model Health', icon: Cpu },
+    { id: 'integrations', label: 'Integrations', icon: Plug },
   ];
 
   function activeIncidentLayersCount(incList, currentId) {
@@ -76,9 +84,10 @@ export default function Navbar({
                 onChange={(e) => onSelectIncident(e.target.value)}
                 className="appearance-none pl-2.5 pr-7 py-1 rounded-md bg-slate-50 border border-slate-300 text-xs font-mono text-slate-900 font-bold focus:outline-none focus:border-blue-600 cursor-pointer shadow-xs"
               >
+                {incidents.length === 0 && <option value="">No incidents observed</option>}
                 {incidents.map(inc => (
                   <option key={inc.incident_id} value={inc.incident_id}>
-                    {inc.incident_id} — {inc.primary_entity} ({inc.threat_score} Score)
+                    {inc.is_simulated ? '[SIM] ' : ''}{inc.incident_id} — {inc.primary_entity} ({inc.threat_score} Score)
                   </option>
                 ))}
               </select>
@@ -93,8 +102,9 @@ export default function Navbar({
           </div>
         </div>
 
-        {/* User Status & Replay Actions */}
+        {/* User Status, Notifications & Replay Actions */}
         <div className="flex items-center space-x-3">
+          <NotificationCenter />
           <div
             onClick={() => onOpenAuth('login')}
             className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-300 text-xs cursor-pointer hover:bg-slate-100 transition"
