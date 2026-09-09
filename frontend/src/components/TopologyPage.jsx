@@ -1,126 +1,136 @@
 import React from 'react';
 import AttackGraph from './AttackGraph';
-import IncidentDetails from './IncidentDetails';
-import { Network, Calculator, ShieldAlert, Cpu, User, Monitor, Terminal, Globe, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Network, User, Monitor, Terminal, Globe, ArrowRight, ShieldAlert, Sparkles } from 'lucide-react';
+import { Card, CardHeader, Pill } from './ui/Primitives';
 
 export default function TopologyPage({ activeIncident, onOpenEntity }) {
-  const threatScore = activeIncident?.threat_score || 87;
+  const threatScore = activeIncident?.threat_score || 85;
+  const entityId = activeIncident?.entity_id || activeIncident?.primary_entity || 'user:attacker_mallory';
+  const rb = activeIncident?.risk_breakdown || {};
+
+  const nodes = activeIncident?.graph_nodes || [
+    { id: entityId, label: entityId, type: entityId.includes('user:') ? 'user' : 'host', risk_score: threatScore, status: 'compromised', layer: 'identity' },
+    { id: 'SRV-AUTH01', label: 'SRV-AUTH01', type: 'host', risk_score: 87, status: 'compromised', layer: 'endpoint' },
+    { id: 'PROC-SSHD', label: 'sshd / bash', type: 'process', risk_score: 89, status: 'suspicious', layer: 'endpoint' },
+    { id: 'IP-203.0.113.55', label: '203.0.113.55', type: 'destination', risk_score: 95, status: 'compromised', layer: 'network' }
+  ];
 
   return (
-    <div className="space-y-5 animate-fadeIn">
+    <div className="space-y-6 animate-fadeIn">
       {/* Top Banner */}
-      <div className="soc-surface p-5 border border-[#D9E0E8] flex flex-wrap items-center justify-between gap-4 shadow-xs">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200">
+      <div className="soc-surface p-6 border border-slate-200/90 flex flex-wrap items-center justify-between gap-6 bg-gradient-to-r from-white via-slate-50 to-violet-50/20">
+        <div className="flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-violet-600 text-white shadow-md shadow-violet-500/20">
             <Network className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-slate-900">Attack Path & Entity Propagation</h1>
-            <p className="text-xs text-slate-600">
-              Interactive propagation flow mapping compromised accounts to host endpoints, child process trees, and external C2 targets.
+            <h1 className="text-base font-extrabold text-slate-900 tracking-tight">
+              Attack Path & Entity Topology Graph
+            </h1>
+            <p className="text-xs text-slate-600 font-medium mt-0.5">
+              Multi-signal topological progression mapping compromised accounts to host infrastructure, spawned processes, and external command & control targets.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 text-xs font-mono">
-          <span className="text-slate-500">Click any node to view entity drawer</span>
+        <div className="flex items-center gap-3 text-xs font-mono">
+          <span className="text-slate-500 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+            Incident: <strong className="text-blue-700">{activeIncident?.id || activeIncident?.incident_id}</strong>
+          </span>
+          <span className="text-slate-500 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+            Target: <strong className="text-slate-900">{entityId}</strong>
+          </span>
         </div>
       </div>
 
-      {/* Structured Attack Path Node Flow Bar */}
-      <div className="soc-surface p-5 border border-[#D9E0E8] space-y-4">
-        <h3 className="text-sm font-bold text-slate-900">Propagated Intrusion Path Flow</h3>
+      {/* Visual Kill Chain Stepper */}
+      <div className="soc-surface p-6 border border-slate-200/90 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-extrabold text-slate-900">
+            Propagated Kill-Chain Attack Flow
+          </h3>
+          <span className="text-[10px] font-mono font-bold text-violet-700 bg-violet-50 px-2.5 py-0.5 rounded-lg border border-violet-200">
+            CROSS-LAYER PROPAGATION
+          </span>
+        </div>
 
-        <div className="flex flex-wrap items-center justify-around gap-3 pt-2">
-          {/* Node 1: User */}
-          <div
-            onClick={() => onOpenEntity && onOpenEntity({ id: 'USER-ADMIN01', label: 'admin_service', type: 'user', risk_score: 74, status: 'suspicious', layer: 'identity' })}
-            className="p-3.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 cursor-pointer text-center space-y-1 min-w-[120px] shadow-xs transition"
-          >
-            <User className="w-5 h-5 mx-auto text-purple-600" />
-            <p className="text-xs font-bold text-slate-900 font-mono">USER-ADMIN01</p>
-            <span className="text-[10px] text-slate-500 block uppercase font-mono">Identity</span>
-            <span className="badge-warning px-1.5 py-0.5 text-[9px] font-mono font-bold">RISK 74</span>
-          </div>
-
-          <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
-
-          {/* Node 2: Host */}
-          <div
-            onClick={() => onOpenEntity && onOpenEntity({ id: 'HOST-042', label: 'WKS-042.internal.corp', type: 'host', risk_score: 87, status: 'compromised', layer: 'endpoint' })}
-            className="p-3.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 cursor-pointer text-center space-y-1 min-w-[120px] shadow-xs transition"
-          >
-            <Monitor className="w-5 h-5 mx-auto text-blue-600" />
-            <p className="text-xs font-bold text-slate-900 font-mono">HOST-042</p>
-            <span className="text-[10px] text-slate-500 block uppercase font-mono">Endpoint</span>
-            <span className="badge-critical px-1.5 py-0.5 text-[9px] font-mono font-bold">RISK 87</span>
-          </div>
-
-          <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
-
-          {/* Node 3: Process */}
-          <div
-            onClick={() => onOpenEntity && onOpenEntity({ id: 'PROC-4912', label: 'powershell.exe -enc', type: 'process', risk_score: 89, status: 'compromised', layer: 'endpoint' })}
-            className="p-3.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 cursor-pointer text-center space-y-1 min-w-[120px] shadow-xs transition"
-          >
-            <Terminal className="w-5 h-5 mx-auto text-amber-600" />
-            <p className="text-xs font-bold text-slate-900 font-mono">PID: 4912</p>
-            <span className="text-[10px] text-slate-500 block uppercase font-mono">powershell.exe</span>
-            <span className="badge-critical px-1.5 py-0.5 text-[9px] font-mono font-bold">RISK 89</span>
-          </div>
-
-          <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
-
-          {/* Node 4: Network C2 */}
-          <div
-            onClick={() => onOpenEntity && onOpenEntity({ id: 'IP-198.51.100.99', label: 'C2 Exfiltration Target', type: 'destination', risk_score: 96, status: 'compromised', layer: 'network' })}
-            className="p-3.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 cursor-pointer text-center space-y-1 min-w-[120px] shadow-xs transition"
-          >
-            <Globe className="w-5 h-5 mx-auto text-rose-600" />
-            <p className="text-xs font-bold text-slate-900 font-mono">198.51.100.99</p>
-            <span className="text-[10px] text-slate-500 block uppercase font-mono">C2 Destination</span>
-            <span className="badge-critical px-1.5 py-0.5 text-[9px] font-mono font-bold">RISK 96</span>
-          </div>
+        <div className="flex flex-wrap items-center justify-around gap-4 pt-2">
+          {nodes.map((node, i) => (
+            <React.Fragment key={node.id || i}>
+              <div
+                onClick={() => onOpenEntity && onOpenEntity({ id: node.id, label: node.label, type: node.type, risk_score: threatScore, status: node.status, layer: node.layer })}
+                className="p-4 rounded-xl bg-white border border-slate-200/90 hover:border-violet-300 cursor-pointer text-center space-y-1.5 min-w-[135px] shadow-2xs transition hover-lift group"
+              >
+                <div className="p-2 rounded-lg bg-slate-50 mx-auto w-fit border border-slate-200 group-hover:scale-110 transition">
+                  {node.type === 'user' ? (
+                    <User className="w-5 h-5 text-violet-600" />
+                  ) : node.type === 'destination' ? (
+                    <Globe className="w-5 h-5 text-cyan-600" />
+                  ) : node.type === 'process' ? (
+                    <Terminal className="w-5 h-5 text-amber-600" />
+                  ) : (
+                    <Monitor className="w-5 h-5 text-blue-600" />
+                  )}
+                </div>
+                <p className="text-xs font-bold text-slate-900 font-mono truncate max-w-[130px] group-hover:text-blue-600 transition">
+                  {node.label}
+                </p>
+                <span className="text-[10px] text-slate-500 block uppercase font-mono font-bold">
+                  {node.layer || node.type}
+                </span>
+                <span className={`${node.status === 'compromised' ? 'badge-critical' : 'badge-warning'} px-2 py-0.5 text-[9px] font-mono font-extrabold rounded-md uppercase`}>
+                  {node.status?.toUpperCase() || 'OBSERVED'}
+                </span>
+              </div>
+              {i < nodes.length - 1 && (
+                <div className="flex flex-col items-center">
+                  <ArrowRight className="w-5 h-5 text-slate-400 shrink-0 animate-pulse" />
+                  <span className="text-[9px] font-mono text-slate-400 font-semibold mt-0.5">pivots</span>
+                </div>
+              )}
+            </React.Fragment>
+          ))}
         </div>
       </div>
 
-      {/* Main Grid: Attack Graph + Human Readable Risk Reasoning */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <AttackGraph incident={activeIncident} />
-        
-        {/* Human Readable Attack Path Explanation */}
-        <div className="soc-surface p-5 border border-[#D9E0E8] space-y-4">
-          <h3 className="text-sm font-bold text-slate-900">Why This Attack Path Is Risky</h3>
-          
-          <div className="space-y-2 text-xs font-mono">
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-              <span className="text-slate-700">+ New authentication origin (Off-hours untrusted IP)</span>
-              <span className="text-amber-700 font-bold">+25 pts</span>
+      {/* Main Grid: Interactive Attack Graph + Correlation Rationale */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-7">
+          <AttackGraph incident={activeIncident} />
+        </div>
+
+        {/* Human Readable Correlation & Explainability Breakdown */}
+        <div className="lg:col-span-5 soc-surface p-6 border border-slate-200/90 space-y-4">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-rose-600" />
+            <h3 className="text-sm font-extrabold text-slate-900">Topology Risk Rationale</h3>
+          </div>
+
+          <div className="space-y-2.5 text-xs font-mono">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex justify-between items-center">
+              <span className="text-slate-700 font-semibold">+ Heuristic Rule Pattern Match</span>
+              <span className="text-amber-700 font-extrabold">+{rb.rule_score || 40} pts</span>
             </div>
 
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-              <span className="text-slate-700">+ Privileged service account targeted (admin_service)</span>
-              <span className="text-purple-700 font-bold">+18 pts</span>
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex justify-between items-center">
+              <span className="text-slate-700 font-semibold">+ ML Outlier Detection (IsoForest)</span>
+              <span className="text-violet-700 font-extrabold">+{rb.ml_score || 30} pts</span>
             </div>
 
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-              <span className="text-slate-700">+ Encrypted PowerShell spawned from web server</span>
-              <span className="text-rose-700 font-bold">+30 pts</span>
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex justify-between items-center">
+              <span className="text-slate-700 font-semibold">+ Cross-Layer Signal Agreement</span>
+              <span className="text-cyan-700 font-extrabold">+{rb.agreement_bonus || 20} pts</span>
             </div>
 
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-              <span className="text-slate-700">+ Rare external C2 destination (198.51.100.99)</span>
-              <span className="text-rose-700 font-bold">+24 pts</span>
-            </div>
-
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 flex justify-between items-center text-xs font-bold text-rose-900">
-              <span>Combined Attack Path Threat Score</span>
-              <span>87 / 100 (HIGH)</span>
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex justify-between items-center text-xs font-bold text-rose-900 shadow-2xs">
+              <span>Combined Incident Threat Score</span>
+              <span className="text-sm">{threatScore} / 100 ({activeIncident?.risk_band || 'CRITICAL'})</span>
             </div>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 font-mono">
-            <strong>Explainability Formula:</strong> Threat Score = Σ(Signal Weight × Confidence × Asset Criticality) - Context Adjustment
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed font-sans space-y-1">
+            <strong className="font-mono text-slate-900 block text-xs">Explainability Engine Verdict:</strong>
+            <p>{activeIncident?.explanation || 'Correlated security telemetry indicates cross-layer threat progression across observed network, host agent, and authentication signals.'}</p>
           </div>
         </div>
       </div>
