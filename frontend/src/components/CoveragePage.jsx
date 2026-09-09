@@ -1,404 +1,705 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Layers, Cpu, Globe, User, Server, Play, Square, ShieldCheck, AlertTriangle,
-  Radio, Database, Lock, MapPin, CheckCircle2, XCircle, FileText,
+  Layers, Globe, Cpu, Server, Play, Pause,
+  Send, Terminal, Zap, ShieldAlert, CheckCircle2, Clock
 } from 'lucide-react';
-import { Card, CardHeader, StatCard, Meter, Pill, LiveDot } from './ui/Primitives';
+import { Card, LiveDot } from './ui/Primitives';
 import { api } from '../lib/api';
 import { useNotifications } from '../lib/notifications';
 import { cn } from '../lib/cn';
 
-/**
- * Telemetry Coverage page.
- *
- * Answers two questions honestly:
- *   1. Which of the four telemetry layers is the platform ACTUALLY observing
- *      right now (not merely which it supports)?
- *   2. Where does the collected security telemetry physically reside?
- *
- * Sensor controls surface the precise blocking reason when a host cannot
- * support a sensor, rather than reporting a false success.
- */
-
-const LAYER_META = {
-  network: { icon: Globe, label: 'Network', accent: 'text-rose-600', chip: 'bg-rose-50' },
-  endpoint: { icon: Cpu, label: 'Endpoint', accent: 'text-blue-600', chip: 'bg-blue-50' },
-  identity: { icon: User, label: 'Identity', accent: 'text-violet-600', chip: 'bg-violet-50' },
-  application: { icon: Server, label: 'Application', accent: 'text-emerald-600', chip: 'bg-emerald-50' },
-};
-
-const LAYER_ORDER = ['network', 'endpoint', 'identity', 'application'];
-
 export default function CoveragePage({ currentUser }) {
   const { notify } = useNotifications();
-  const role = currentUser?.role || 'SOC Tier-2 Analyst';
 
   const [coverage, setCoverage] = useState(null);
-  const [sensors, setSensors] = useState(null);
-  const [sovereignty, setSovereignty] = useState(null);
-  const [events, setEvents] = useState({ endpoint: [], application: [] });
-  const [busy, setBusy] = useState(null);
-  const [errors, setErrors] = useState({});
+  const [simulating, setSimulating] = useState(false);
+  const [activeFormTab, setActiveFormTab] = useState('network');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ingestionLogs, setIngestionLogs] = useState([]);
 
-  const refresh = useCallback(async () => {
-    const [cov, sens, sov, epEv, appEv] = await Promise.all([
-      api.getLayerCoverage(),
-      api.getSensorStatus(),
-      api.getSovereignty(),
-      api.getSensorEvents('endpoint', 20),
-      api.getSensorEvents('application', 20),
-    ]);
-    if (cov) setCoverage(cov);
-    if (sens) setSensors(sens);
-    if (sov) setSovereignty(sov);
-    setEvents({ endpoint: epEv?.events || [], application: appEv?.events || [] });
+  // Form states for manual injection
+  const [netForm, setNetForm] = useState({
+    src_ip: '192.168.1.50',
+    dest_ip: '203.0.113.55',
+    src_port: 54321,
+    dest_port: 443,
+    protocol: 'TCP',
+    bytes_transferred: 52428800,
+    duration: 5.2,
+  });
+
+  const [epForm, setEpForm] = useState({
+    host_id: 'SRV-AUTH01',
+    user: 'attacker_mallory',
+    event_type: 'login_fail',
+    process_name: 'sshd',
+    parent_process: 'init',
+  });
+
+  const [appForm, setAppForm] = useState({
+    endpoint: '/api/v1/admin/users',
+    method: 'POST',
+    status_code: 401,
+    response_time_ms: 112.5,
+    user_id: 'attacker_mallory',
+    client_ip: '192.168.1.50',
+    session_id: 'sess-8891',
+  });
+
+  const fetchCoverage = useCallback(async () => {
+    const data = await api.getCoverage();
+    if (data) {
+      setCoverage(data);
+    }
   }, []);
 
   useEffect(() => {
-    refresh();
-    const timer = setInterval(refresh, 4000);
+    fetchCoverage();
+    const timer = setInterval(fetchCoverage, 3000);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [fetchCoverage]);
 
-  const toggleSensor = async (name, running) => {
-    setBusy(name);
-    setErrors((e) => ({ ...e, [name]: null }));
+  const handleStartSim = async () => {
     try {
-      if (running) {
-        await api.stopSensor(name, role);
-        notify({ severity: 'info', title: `${name} sensor stopped` });
-      } else {
-        await api.startSensor(name, role);
-        notify({ severity: 'success', title: `${name} sensor started`, message: 'Observing real host telemetry.' });
-      }
-      await refresh();
-    } catch (error) {
-      setErrors((e) => ({ ...e, [name]: error.message }));
-      notify({ severity: 'danger', title: `${name} sensor could not start`, message: error.message });
-    } finally {
-      setBusy(null);
+      const res = await api.startSimulation();
+      setSimulating(true);
+      notify({
+        severity: 'success',
+        title: 'Simulator Active',
+        message: res?.message || 'Background multi-signal telemetry simulator started.',
+      });
+      fetchCoverage();
+    } catch (err) {
+      notify({ severity: 'danger', title: 'Simulator Error', message: err.message });
     }
   };
 
-  const liveCount = coverage?.layers_live ?? 0;
-  const crossReady = coverage?.cross_layer_ready;
+  const handleStopSim = async () => {
+    try {
+      const res = await api.stopSimulation();
+      setSimulating(false);
+      notify({
+        severity: 'info',
+        title: 'Simulator Paused',
+        message: res?.message || 'Telemetry simulation paused.',
+      });
+      fetchCoverage();
+    } catch (err) {
+      notify({ severity: 'danger', title: 'Simulator Error', message: err.message });
+    }
+  };
+
+  const handleInjectNetwork = async (e) => {
+    if (e) e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        ...netForm,
+        src_port: Number(netForm.src_port),
+        dest_port: Number(netForm.dest_port),
+        bytes_transferred: Number(netForm.bytes_transferred),
+        duration: Number(netForm.duration),
+      };
+      const res = await api.ingestNetwork(payload);
+      notify({ severity: 'success', title: 'Network Flow Ingested', message: `Event ID: ${res?.event_id}` });
+      setIngestionLogs((prev) => [
+        { time: new Date().toLocaleTimeString(), type: 'NETWORK', tone: 'text-cyan-700 bg-cyan-50 border-cyan-200', res },
+        ...prev.slice(0, 11),
+      ]);
+      fetchCoverage();
+    } catch (err) {
+      notify({ severity: 'danger', title: 'Ingestion Failed', message: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleInjectEndpoint = async (e) => {
+    if (e) e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const res = await api.ingestEndpoint(epForm);
+      notify({ severity: 'success', title: 'Endpoint Event Ingested', message: `Event ID: ${res?.event_id}` });
+      setIngestionLogs((prev) => [
+        { time: new Date().toLocaleTimeString(), type: 'ENDPOINT', tone: 'text-blue-700 bg-blue-50 border-blue-200', res },
+        ...prev.slice(0, 11),
+      ]);
+      fetchCoverage();
+    } catch (err) {
+      notify({ severity: 'danger', title: 'Ingestion Failed', message: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleInjectApp = async (e) => {
+    if (e) e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        ...appForm,
+        status_code: Number(appForm.status_code),
+        response_time_ms: Number(appForm.response_time_ms),
+      };
+      const res = await api.ingestApplication(payload);
+      notify({ severity: 'success', title: 'Application Log Ingested', message: `Event ID: ${res?.event_id}` });
+      setIngestionLogs((prev) => [
+        { time: new Date().toLocaleTimeString(), type: 'APPLICATION', tone: 'text-emerald-700 bg-emerald-50 border-emerald-200', res },
+        ...prev.slice(0, 11),
+      ]);
+      fetchCoverage();
+    } catch (err) {
+      notify({ severity: 'danger', title: 'Ingestion Failed', message: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Preset Ingestion Emitters for Fast SOC Testing
+  const applyPreset = (preset) => {
+    if (preset === 'brute_force') {
+      setActiveFormTab('endpoint');
+      setEpForm({
+        host_id: 'SRV-AUTH01',
+        user: 'attacker_mallory',
+        event_type: 'login_fail',
+        process_name: 'sshd',
+        parent_process: 'init',
+      });
+    } else if (preset === 'c2_exfil') {
+      setActiveFormTab('network');
+      setNetForm({
+        src_ip: '192.168.1.50',
+        dest_ip: '203.0.113.55',
+        src_port: 49152,
+        dest_port: 443,
+        protocol: 'TCP',
+        bytes_transferred: 104857600,
+        duration: 12.8,
+      });
+    } else if (preset === 'api_probe') {
+      setActiveFormTab('application');
+      setAppForm({
+        endpoint: '/api/v1/admin/users',
+        method: 'POST',
+        status_code: 401,
+        response_time_ms: 180.2,
+        user_id: 'attacker_mallory',
+        client_ip: '192.168.1.50',
+        session_id: 'sess-8891',
+      });
+    }
+  };
+
+  const netCov = coverage?.network || { total_events: 0, active_entities_count: 0 };
+  const epCov = coverage?.endpoint || { total_events: 0, active_entities_count: 0 };
+  const appCov = coverage?.application || { total_events: 0, active_entities_count: 0 };
+  const totalEvents = coverage?.total_ingested_events || (netCov.total_events + epCov.total_events + appCov.total_events);
 
   return (
-    <div className="space-y-5 animate-fadeIn">
-      {/* ---------------- Coverage summary ---------------- */}
-      <div className="soc-surface p-5 border border-[#D9E0E8] flex flex-wrap items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <Layers className="w-4 h-4 text-blue-600" />
-            Telemetry Layer Coverage
-          </h2>
-          <p className="text-xs text-slate-600 max-w-2xl">
-            Live observation status for each of the four signal sources. Cross-layer
-            correlation needs at least two live layers sharing an entity.
+    <div className="space-y-6 animate-fadeIn">
+      {/* Top Banner: Ingestion Engine Stats & Simulator Controls */}
+      <div className="soc-surface p-6 border border-slate-200/90 flex flex-wrap items-center justify-between gap-6 bg-gradient-to-r from-white via-slate-50 to-cyan-50/20">
+        <div className="space-y-1.5 max-w-2xl">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-cyan-600 text-white shadow-md shadow-cyan-500/20">
+              <Layers className="w-5 h-5" />
+            </div>
+            <h2 className="text-base font-extrabold text-slate-900 tracking-tight">
+              Multi-Signal Telemetry Ingestion & Coverage Engine
+            </h2>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed font-medium">
+            Ingests, normalizes, and correlates concurrent telemetry across 3 observation layers: Network packet flows, Endpoint host sensor logs, and Application API gateway streams.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-4">
           <div className="text-right">
-            <div className="text-2xl font-extrabold font-mono text-slate-900 leading-none">
-              {liveCount}/4
+            <div className="text-3xl font-extrabold font-mono text-slate-900 leading-none">
+              {totalEvents.toLocaleString()}
             </div>
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">layers live</div>
+            <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 mt-1">Total Packets Ingested</div>
           </div>
-          <Pill tone={crossReady ? 'success' : 'warning'}>
-            {crossReady ? 'CROSS-LAYER READY' : 'SINGLE LAYER'}
-          </Pill>
+
+          <div className="h-10 w-px bg-slate-200" />
+
+          {simulating ? (
+            <button
+              onClick={handleStopSim}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition shadow-md shadow-amber-500/20 cursor-pointer"
+            >
+              <Pause className="w-4 h-4 fill-current" />
+              <span>Pause Simulator</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleStartSim}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition shadow-md shadow-blue-500/20 cursor-pointer"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              <span>Launch Simulator</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ---------------- Layer grid ---------------- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-        {LAYER_ORDER.map((key) => {
-          const meta = LAYER_META[key];
-          const info = coverage?.layers?.[key] || {};
-          const Icon = meta.icon;
-          const live = info.live;
-          const available = info.available;
+      {/* 3-Card Signal Coverage Overview with Distinct Accents */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Network Layer Card */}
+        <Card className="space-y-4 border-cyan-200/90 bg-gradient-to-b from-white to-cyan-50/30">
+          <div className="flex items-start justify-between">
+            <div className="p-3 rounded-xl bg-cyan-50 border border-cyan-200 text-cyan-600 shadow-2xs">
+              <Globe className="w-5 h-5" />
+            </div>
+            <LiveDot tone={netCov.total_events > 0 ? 'cyan' : 'neutral'} label={netCov.total_events > 0 ? 'ACTIVE STREAM' : 'IDLE'} />
+          </div>
+          <div>
+            <h3 className="text-sm font-extrabold text-slate-900">1. Network Telemetry Layer</h3>
+            <p className="text-[11px] font-mono text-cyan-700 font-bold mt-0.5">POST /ingest/network</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100 font-mono text-xs">
+            <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+              <span className="text-[10px] text-slate-500 block uppercase font-bold">TOTAL EVENTS</span>
+              <strong className="text-slate-900 text-lg font-extrabold">{netCov.total_events || 0}</strong>
+            </div>
+            <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+              <span className="text-[10px] text-slate-500 block uppercase font-bold">ENTITIES</span>
+              <strong className="text-slate-900 text-lg font-extrabold">{netCov.active_entities_count || 0}</strong>
+            </div>
+          </div>
+          <div className="text-[11px] font-mono text-slate-500 flex items-center gap-1.5 truncate">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>Last seen: {netCov.last_event_at ? new Date(netCov.last_event_at).toLocaleTimeString() : 'Awaiting flows...'}</span>
+          </div>
+        </Card>
 
-          return (
-            <Card key={key} className={cn('space-y-3', live && 'border-emerald-200')}>
-              <div className="flex items-start justify-between">
-                <span className={cn('rounded-lg p-2.5', meta.chip)}>
-                  <Icon className={cn('w-5 h-5', meta.accent)} />
-                </span>
-                {live
-                  ? <LiveDot tone="success" label="LIVE" />
-                  : <Pill tone={available ? 'neutral' : 'warning'}>
-                      {available ? 'IDLE' : 'UNAVAILABLE'}
-                    </Pill>}
+        {/* Endpoint Layer Card */}
+        <Card className="space-y-4 border-blue-200/90 bg-gradient-to-b from-white to-blue-50/30">
+          <div className="flex items-start justify-between">
+            <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-600 shadow-2xs">
+              <Cpu className="w-5 h-5" />
+            </div>
+            <LiveDot tone={epCov.total_events > 0 ? 'primary' : 'neutral'} label={epCov.total_events > 0 ? 'ACTIVE STREAM' : 'IDLE'} />
+          </div>
+          <div>
+            <h3 className="text-sm font-extrabold text-slate-900">2. Endpoint Host Sensor</h3>
+            <p className="text-[11px] font-mono text-blue-700 font-bold mt-0.5">POST /ingest/endpoint</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100 font-mono text-xs">
+            <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+              <span className="text-[10px] text-slate-500 block uppercase font-bold">TOTAL EVENTS</span>
+              <strong className="text-slate-900 text-lg font-extrabold">{epCov.total_events || 0}</strong>
+            </div>
+            <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+              <span className="text-[10px] text-slate-500 block uppercase font-bold">HOSTS</span>
+              <strong className="text-slate-900 text-lg font-extrabold">{epCov.active_entities_count || 0}</strong>
+            </div>
+          </div>
+          <div className="text-[11px] font-mono text-slate-500 flex items-center gap-1.5 truncate">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>Last seen: {epCov.last_event_at ? new Date(epCov.last_event_at).toLocaleTimeString() : 'Awaiting host events...'}</span>
+          </div>
+        </Card>
+
+        {/* Application Layer Card */}
+        <Card className="space-y-4 border-emerald-200/90 bg-gradient-to-b from-white to-emerald-50/30">
+          <div className="flex items-start justify-between">
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-600 shadow-2xs">
+              <Server className="w-5 h-5" />
+            </div>
+            <LiveDot tone={appCov.total_events > 0 ? 'success' : 'neutral'} label={appCov.total_events > 0 ? 'ACTIVE STREAM' : 'IDLE'} />
+          </div>
+          <div>
+            <h3 className="text-sm font-extrabold text-slate-900">3. Application Gateway Layer</h3>
+            <p className="text-[11px] font-mono text-emerald-700 font-bold mt-0.5">POST /ingest/application</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100 font-mono text-xs">
+            <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+              <span className="text-[10px] text-slate-500 block uppercase font-bold">TOTAL EVENTS</span>
+              <strong className="text-slate-900 text-lg font-extrabold">{appCov.total_events || 0}</strong>
+            </div>
+            <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+              <span className="text-[10px] text-slate-500 block uppercase font-bold">SERVICES</span>
+              <strong className="text-slate-900 text-lg font-extrabold">{appCov.active_entities_count || 0}</strong>
+            </div>
+          </div>
+          <div className="text-[11px] font-mono text-slate-500 flex items-center gap-1.5 truncate">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>Last seen: {appCov.last_event_at ? new Date(appCov.last_event_at).toLocaleTimeString() : 'Awaiting API logs...'}</span>
+          </div>
+        </Card>
+      </div>
+
+      {/* 1-Click Threat Simulation Presets */}
+      <div className="soc-surface p-5 border border-slate-200/90 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-600" />
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
+              1-Click Threat Emitter Presets
+            </h3>
+          </div>
+          <span className="text-[11px] text-slate-500 font-mono font-semibold">Pre-populates payload in studio below</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={() => applyPreset('brute_force')}
+            className="p-3 rounded-xl bg-white border border-slate-200 hover:border-amber-300 hover:bg-amber-50/40 text-left transition hover-lift cursor-pointer shadow-2xs"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-900">Brute Force Burst</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-100 text-amber-800">ENDPOINT</span>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-1">Emits rapid SSH login failures on SRV-AUTH01.</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => applyPreset('api_probe')}
+            className="p-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 text-left transition hover-lift cursor-pointer shadow-2xs"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-900">Admin API Probe</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-800">APPLICATION</span>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-1">Emits 401 unauthorized probe to /api/v1/admin/users.</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => applyPreset('c2_exfil')}
+            className="p-3 rounded-xl bg-white border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/40 text-left transition hover-lift cursor-pointer shadow-2xs"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-900">Large C2 Exfiltration</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-100 text-cyan-800">NETWORK</span>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-1">Emits high-volume 100MB flow to 203.0.113.55.</p>
+          </button>
+        </div>
+      </div>
+
+      {/* Interactive Ingestion Emitter Studio & Real-Time Terminal Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-7 soc-surface p-6 border border-slate-200/90 space-y-5">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Send className="w-4 h-4 text-blue-600" />
+              <h3 className="text-sm font-extrabold text-slate-900">Live Telemetry Ingestion Studio</h3>
+            </div>
+            <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+              {['network', 'endpoint', 'application'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveFormTab(tab)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-extrabold rounded-lg transition capitalize cursor-pointer',
+                    activeFormTab === tab
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  )}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Form: Network */}
+          {activeFormTab === 'network' && (
+            <form onSubmit={handleInjectNetwork} className="space-y-4 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Source IP (Internal Host)</label>
+                  <input
+                    type="text"
+                    value={netForm.src_ip}
+                    onChange={(e) => setNetForm({ ...netForm, src_ip: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-cyan-600 font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Destination IP (C2 Target)</label>
+                  <input
+                    type="text"
+                    value={netForm.dest_ip}
+                    onChange={(e) => setNetForm({ ...netForm, dest_ip: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-cyan-600 font-bold"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Src Port</label>
+                  <input
+                    type="number"
+                    value={netForm.src_port}
+                    onChange={(e) => setNetForm({ ...netForm, src_port: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Dest Port</label>
+                  <input
+                    type="number"
+                    value={netForm.dest_port}
+                    onChange={(e) => setNetForm({ ...netForm, dest_port: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Protocol</label>
+                  <select
+                    value={netForm.protocol}
+                    onChange={(e) => setNetForm({ ...netForm, protocol: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold cursor-pointer"
+                  >
+                    <option value="TCP">TCP</option>
+                    <option value="UDP">UDP</option>
+                    <option value="ICMP">ICMP</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Bytes Transferred</label>
+                  <input
+                    type="number"
+                    value={netForm.bytes_transferred}
+                    onChange={(e) => setNetForm({ ...netForm, bytes_transferred: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Duration (seconds)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={netForm.duration}
+                    onChange={(e) => setNetForm({ ...netForm, duration: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs transition disabled:opacity-50 cursor-pointer shadow-md shadow-cyan-500/20"
+              >
+                {isSubmitting ? 'Ingesting Flow...' : 'Emit Network Flow (POST /ingest/network)'}
+              </button>
+            </form>
+          )}
+
+          {/* Form: Endpoint */}
+          {activeFormTab === 'endpoint' && (
+            <form onSubmit={handleInjectEndpoint} className="space-y-4 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Host ID</label>
+                  <input
+                    type="text"
+                    value={epForm.host_id}
+                    onChange={(e) => setEpForm({ ...epForm, host_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">User Account</label>
+                  <input
+                    type="text"
+                    value={epForm.user}
+                    onChange={(e) => setEpForm({ ...epForm, user: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                    required
+                  />
+                </div>
               </div>
 
               <div>
-                <h3 className="text-sm font-bold text-slate-900">{meta.label}</h3>
-                <p className="text-[10px] font-mono text-slate-500 mt-0.5">{info.sensor || '—'}</p>
-              </div>
-
-              <ul className="space-y-1">
-                {(info.detects || []).slice(0, 5).map((d) => (
-                  <li key={d} className="flex items-start gap-1.5 text-[11px] text-slate-600">
-                    <CheckCircle2 className={cn('w-3 h-3 shrink-0 mt-0.5',
-                      live ? 'text-emerald-600' : 'text-slate-300')} />
-                    {d}
-                  </li>
-                ))}
-              </ul>
-
-              {info.note && (
-                <p className="text-[10px] text-slate-500 border-t border-slate-200 pt-2 leading-relaxed">
-                  {info.note}
-                </p>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* ---------------- Sensor controls ---------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {['endpoint', 'application'].map((name) => {
-          const s = sensors?.[name];
-          const cap = s?.capability || {};
-          const running = Boolean(s?.running);
-          const possible = cap.capture_possible !== false;
-          const meta = LAYER_META[name];
-          const Icon = meta.icon;
-
-          return (
-            <Card key={name} className="space-y-4">
-              <CardHeader
-                icon={Icon}
-                accent={meta.accent}
-                title={`${meta.label} Sensor`}
-                subtitle={name === 'endpoint'
-                  ? 'Observes real local process activity via psutil'
-                  : 'Tails real web access logs for request-content signals'}
-                right={running ? <LiveDot tone="success" label="RUNNING" /> : <Pill tone="neutral">STOPPED</Pill>}
-              />
-
-              <div className="grid grid-cols-3 gap-2.5">
-                {name === 'endpoint' ? (
-                  <>
-                    <Mini label="Processes seen" value={s?.processes_observed ?? 0} />
-                    <Mini label="Events" value={s?.events_emitted ?? 0} />
-                    <Mini label="Susp. chains" value={s?.suspicious_chains ?? 0} />
-                  </>
-                ) : (
-                  <>
-                    <Mini label="Lines read" value={s?.lines_read ?? 0} />
-                    <Mini label="Requests" value={s?.requests_parsed ?? 0} />
-                    <Mini label="Signature hits" value={s?.signature_hits ?? 0} />
-                  </>
-                )}
-              </div>
-
-              {/* Honest unavailability */}
-              {!possible && (
-                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-1">
-                  <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
-                    Sensor unavailable
-                  </p>
-                  <p className="text-[11px] font-mono text-slate-700">{cap.reason}</p>
-                  {cap.remediation && (
-                    <p className="text-[11px] text-slate-600">{cap.remediation}</p>
-                  )}
-                </div>
-              )}
-
-              {errors[name] && (
-                <p className="text-[11px] font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
-                  {errors[name]}
-                </p>
-              )}
-
-              {name === 'application' && (cap.configured_paths || []).length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Log paths</p>
-                  {cap.configured_paths.map((path) => (
-                    <p key={path} className="text-[11px] font-mono text-slate-700 flex items-center gap-1.5 truncate">
-                      {(cap.readable_paths || []).includes(path)
-                        ? <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                        : <XCircle className="w-3 h-3 text-rose-600 shrink-0" />}
-                      <span className="truncate">{path}</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
-                <span className="text-[11px] font-mono text-slate-500 truncate">
-                  entity: {s?.entity || '—'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => toggleSensor(name, running)}
-                  disabled={busy === name || (!possible && !running)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition disabled:opacity-50',
-                    running
-                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white',
-                  )}
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Event Type</label>
+                <select
+                  value={epForm.event_type}
+                  onChange={(e) => setEpForm({ ...epForm, event_type: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold cursor-pointer"
                 >
-                  {running ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                  <span>{busy === name ? 'Working…' : running ? 'Stop' : 'Start'}</span>
-                </button>
+                  <option value="login_fail">login_fail (Brute Force trigger)</option>
+                  <option value="login_success">login_success</option>
+                  <option value="process_start">process_start (Suspicious execution)</option>
+                  <option value="file_access">file_access (Sensitive credential access)</option>
+                </select>
               </div>
 
-              {/* Real observations */}
-              {(events[name] || []).length > 0 && (
-                <div className="space-y-1.5 border-t border-slate-200 pt-3 max-h-[200px] overflow-y-auto">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Recent observations
-                  </p>
-                  {events[name].map((ev, i) => (
-                    <div key={i} className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px]">
-                      {name === 'endpoint' ? (
-                        <>
-                          <span className="font-mono font-bold text-slate-900">{ev.process_name}</span>
-                          <span className="text-slate-500"> ← {ev.parent_process || 'unknown'}</span>
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {ev.chain_suspicious && <Pill tone="danger">SUSPICIOUS CHAIN</Pill>}
-                            {ev.encoded_command && <Pill tone="warning">ENCODED CMD</Pill>}
-                            {ev.privileged && <Pill tone="violet">PRIVILEGED</Pill>}
-                            {ev.incident_id && <span className="font-mono text-[10px] text-blue-700">{ev.incident_id}</span>}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <span className="font-mono font-bold text-slate-900">{ev.client_ip}</span>
-                          <span className="font-mono text-slate-600"> {ev.method} {String(ev.path).substring(0, 44)}</span>
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {(ev.families || []).map((f) => <Pill key={f} tone="danger">{f}</Pill>)}
-                            <span className="font-mono text-[10px] text-slate-500">
-                              status {ev.status} · sig {ev.payload_pattern_score}
-                            </span>
-                            {ev.incident_id && <span className="font-mono text-[10px] text-blue-700">{ev.incident_id}</span>}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))}
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Process Name</label>
+                  <input
+                    type="text"
+                    value={epForm.process_name}
+                    onChange={(e) => setEpForm({ ...epForm, process_name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                  />
                 </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Parent Process</label>
+                  <input
+                    type="text"
+                    value={epForm.parent_process}
+                    onChange={(e) => setEpForm({ ...epForm, parent_process: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                  />
+                </div>
+              </div>
 
-      {/* ---------------- Data sovereignty ---------------- */}
-      <Card className="space-y-4">
-        <CardHeader
-          icon={Lock}
-          title="Data Sovereignty Posture"
-          accent="text-violet-600"
-          subtitle="Where collected security telemetry physically resides"
-          right={sovereignty && (
-            <Pill tone={sovereignty.residency_compliant ? 'success' : 'danger'}>
-              {sovereignty.residency_compliant ? 'WITHIN POLICY' : 'POLICY BREACH'}
-            </Pill>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition disabled:opacity-50 cursor-pointer shadow-md shadow-blue-500/20"
+              >
+                {isSubmitting ? 'Ingesting Event...' : 'Emit Endpoint Event (POST /ingest/endpoint)'}
+              </button>
+            </form>
           )}
-        />
 
-        {!sovereignty ? (
-          <div className="skeleton h-16 w-full" />
-        ) : (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard icon={Database} label="Hosting model" tone={
-                sovereignty.hosting_model === 'self_hosted' ? 'success' : 'warning'
-              } value={String(sovereignty.hosting_model).replace(/_/g, ' ')} />
-              <StatCard icon={MapPin} label="Jurisdiction" tone="neutral"
-                value={String(sovereignty.jurisdiction_class).replace(/_/g, ' ')}
-                footer={sovereignty.declared_region || 'region not declared'} />
-              <StatCard icon={Server} label="Datastore" tone="primary"
-                value={sovereignty.datastore_backend} />
-              <StatCard icon={Radio} label="Telemetry leaves host"
-                tone={sovereignty.sovereignty_properties?.telemetry_leaves_host ? 'danger' : 'success'}
-                value={sovereignty.sovereignty_properties?.telemetry_leaves_host ? 'YES' : 'NO'} />
-            </div>
-
-            {(sovereignty.findings || []).length > 0 && (
-              <div className="space-y-2">
-                {sovereignty.findings.map((f, i) => (
-                  <div key={i} className="p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                    <p className="text-xs text-slate-700 leading-relaxed">{f}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-200 pt-3">
-              {[
-                ['Models run locally', sovereignty.sovereignty_properties?.models_run_locally],
-                ['No third-party inference', !sovereignty.sovereignty_properties?.inference_sent_to_third_party],
-                ['No external intel calls', !sovereignty.sovereignty_properties?.external_threat_intel_calls],
-                ['Self-hostable end to end', sovereignty.sovereignty_properties?.self_hostable_end_to_end],
-              ].map(([label, ok]) => (
-                <span key={label} className="flex items-center gap-2 text-xs text-slate-700">
-                  {ok
-                    ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    : <XCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-                  {label}
-                </span>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-200 pt-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mr-1">
-                Open standards
-              </span>
-              {(sovereignty.sovereignty_properties?.open_standards || []).map((s) => (
-                <Pill key={s} tone="primary">{s}</Pill>
-              ))}
-            </div>
-          </>
-        )}
-      </Card>
-
-      {/* ---------------- Cross-layer explainer ---------------- */}
-      <Card className="space-y-3">
-        <CardHeader icon={ShieldCheck} title="How Cross-Layer Correlation Fires"
-          subtitle="All local sensors must agree on the entity for evidence to converge" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {LAYER_ORDER.map((k, i) => {
-            const meta = LAYER_META[k];
-            const Icon = meta.icon;
-            const live = coverage?.layers?.[k]?.live;
-            return (
-              <div key={k} className={cn(
-                'rounded-xl border p-3 text-center',
-                live ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200',
-              )}>
-                <Icon className={cn('w-5 h-5 mx-auto', live ? meta.accent : 'text-slate-400')} />
-                <div className="text-xs font-bold text-slate-900 mt-1.5">{meta.label}</div>
-                <div className="text-[10px] font-mono text-slate-500">
-                  {live ? 'contributing' : 'not observed'}
+          {/* Form: Application */}
+          {activeFormTab === 'application' && (
+            <form onSubmit={handleInjectApp} className="space-y-4 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Endpoint Path</label>
+                  <input
+                    type="text"
+                    value={appForm.endpoint}
+                    onChange={(e) => setAppForm({ ...appForm, endpoint: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">HTTP Method</label>
+                  <select
+                    value={appForm.method}
+                    onChange={(e) => setAppForm({ ...appForm, method: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold cursor-pointer"
+                  >
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
                 </div>
               </div>
-            );
-          })}
-        </div>
-        <p className="text-[11px] text-slate-600 leading-relaxed border-t border-slate-200 pt-3">
-          <FileText className="w-3.5 h-3.5 text-slate-400 inline mr-1" />
-          {coverage?.note || 'Set NETWORK_LOCAL_ENTITY so every local sensor reports the same entity.'}
-          {' '}Scoring rewards convergence: 2 layers +12, 3 layers +25, all 4 layers +32.
-        </p>
-      </Card>
-    </div>
-  );
-}
 
-function Mini({ label, value }) {
-  return (
-    <div className="rounded-lg bg-slate-50 border border-slate-200 p-2.5">
-      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</div>
-      <div className="text-base font-extrabold font-mono text-slate-900 leading-none mt-1">{value}</div>
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">HTTP Status Code</label>
+                  <input
+                    type="number"
+                    value={appForm.status_code}
+                    onChange={(e) => setAppForm({ ...appForm, status_code: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Response Time (ms)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={appForm.response_time_ms}
+                    onChange={(e) => setAppForm({ ...appForm, response_time_ms: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">User ID</label>
+                  <input
+                    type="text"
+                    value={appForm.user_id}
+                    onChange={(e) => setAppForm({ ...appForm, user_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Client IP</label>
+                  <input
+                    type="text"
+                    value={appForm.client_ip}
+                    onChange={(e) => setAppForm({ ...appForm, client_ip: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white font-bold"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition disabled:opacity-50 cursor-pointer shadow-md shadow-emerald-500/20"
+              >
+                {isSubmitting ? 'Ingesting Log...' : 'Emit API Log (POST /ingest/application)'}
+              </button>
+            </form>
+          )}
+        </div>
+
+        {/* Real-Time Live ACK Ingestion Terminal */}
+        <div className="lg:col-span-5 soc-surface p-6 border border-slate-200/90 space-y-4 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-3">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-slate-700" />
+                <h3 className="text-sm font-extrabold text-slate-900">Live Ingestion Stream ACK</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                STREAM ACTIVE
+              </span>
+            </div>
+
+            <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
+              {ingestionLogs.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400 font-mono bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                  <Terminal className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  Emit a manual telemetry packet or start the attack simulator to see live JSON ACK logs.
+                </div>
+              ) : (
+                ingestionLogs.map((log, idx) => (
+                  <div key={idx} className={cn('p-3 rounded-xl border text-xs font-mono space-y-1.5 shadow-2xs', log.tone)}>
+                    <div className="flex justify-between items-center">
+                      <span className="font-extrabold">[{log.type}]</span>
+                      <span className="text-[10px] opacity-75 font-semibold">{log.time}</span>
+                    </div>
+                    <div className="text-[11px] truncate font-medium">
+                      Entity: <strong className="text-slate-900">{log.res?.entity_id}</strong>
+                    </div>
+                    <div className="text-[10px] opacity-75 truncate">
+                      Event ID: {log.res?.event_id}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 text-[11px] font-mono text-slate-600 flex items-center justify-between">
+            <span>Protocol: HTTP/1.1 JSON Ingestion</span>
+            <span className="text-emerald-700 font-bold">200 OK</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

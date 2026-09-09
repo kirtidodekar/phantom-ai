@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { X, BarChart2, CheckCircle2, ShieldCheck, Database } from 'lucide-react';
+import apiClient from '../api/client';
 
 export default function MetricsModal({ isOpen, onClose }) {
   const [metrics, setMetrics] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
-      fetch('/api/metrics')
-        .then(res => res.json())
-        .then(data => setMetrics(data))
+      apiClient.get('/api/metrics')
+        .then(res => setMetrics(res.data))
         .catch(err => console.error("Error fetching metrics:", err));
     }
   }, [isOpen]);
@@ -17,12 +17,12 @@ export default function MetricsModal({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-xl max-w-2xl w-full relative space-y-5">
+      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xl max-w-2xl w-full relative space-y-5">
         {/* Close Button */}
         <button
           onClick={onClose}
           aria-label="Close model evaluation report"
-          className="absolute top-4 right-4 text-slate-500 hover:text-slate-800 p-1 rounded-lg bg-slate-100 border border-slate-200 transition"
+          className="absolute top-4 right-4 text-slate-500 hover:text-slate-800 p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 transition cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>

@@ -5,10 +5,10 @@ import { TrendingUp, AlertTriangle, Layers, ShieldCheck } from 'lucide-react';
 export default function TrajectoryChart({ incident }) {
   if (!incident || !incident.score_history || incident.score_history.length === 0) {
     return (
-      <div className="glass-card rounded-2xl p-6 flex flex-col items-center justify-center min-h-[300px] text-slate-500 bg-white">
+      <div className="glass-card rounded-2xl p-8 flex flex-col items-center justify-center min-h-[300px] text-slate-500 bg-white">
         <ShieldCheck className="w-12 h-12 text-slate-400 mb-2" />
-        <p className="text-sm font-medium text-slate-700">No Active Threat Trajectory</p>
-        <p className="text-xs text-slate-500">Run telemetry replay to visualize real-time threat score progression.</p>
+        <p className="text-sm font-bold text-slate-700">No Active Threat Trajectory</p>
+        <p className="text-xs text-slate-500">Run telemetry simulation to visualize real-time threat score progression.</p>
       </div>
     );
   }
@@ -22,49 +22,47 @@ export default function TrajectoryChart({ incident }) {
   }));
 
   const currentScore = incident.threat_score;
-  const riskLevel = incident.risk_breakdown?.risk_level || "LOW";
+  const riskLevel = incident.risk_breakdown?.risk_level || (currentScore >= 80 ? 'CRITICAL' : currentScore >= 60 ? 'HIGH' : 'LOW');
 
   const getRiskColor = (level) => {
     switch (level) {
-      case 'CRITICAL': return 'text-rose-800 border-rose-300 bg-rose-100';
-      case 'HIGH': return 'text-amber-800 border-amber-300 bg-amber-100';
-      case 'MEDIUM': return 'text-yellow-800 border-yellow-300 bg-yellow-100';
-      default: return 'text-emerald-800 border-emerald-300 bg-emerald-100';
+      case 'CRITICAL': return 'text-rose-800 border-rose-300 bg-rose-50';
+      case 'HIGH': return 'text-amber-800 border-amber-300 bg-amber-50';
+      case 'MEDIUM': return 'text-yellow-800 border-yellow-300 bg-yellow-50';
+      default: return 'text-emerald-800 border-emerald-300 bg-emerald-50';
     }
   };
 
   return (
-    <div className="glass-card rounded-2xl p-5 border border-slate-200 bg-white shadow-xs relative overflow-hidden">
+    <div className="soc-surface rounded-2xl p-6 border border-slate-200/90 bg-white shadow-2xs relative overflow-hidden space-y-4">
       {/* Header Info */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-blue-600" />
-            <h2 className="text-base font-bold text-slate-900">Threat Trajectory & Escalation Curve</h2>
+            <h2 className="text-sm font-extrabold text-slate-900">Threat Trajectory & Escalation Curve</h2>
           </div>
-          <p className="text-xs text-slate-600 mt-0.5">
-            {incident.is_simulated
-              ? 'Simulated replay scenario — not observed network traffic.'
-              : 'Observed telemetry: stateful risk trajectory across the fused layers.'}
+          <p className="text-xs text-slate-600 mt-0.5 font-medium">
+            Stateful multi-signal threat trajectory fusing identity velocity, host processes, and network egress.
           </p>
         </div>
 
         {/* Threat Score Metric Badge */}
-        <div className="flex items-center space-x-3 bg-slate-50 p-2 px-3.5 rounded-xl border border-slate-200">
+        <div className="flex items-center gap-3 bg-slate-50 p-2 px-3.5 rounded-xl border border-slate-200 shadow-2xs">
           <div className="text-right">
-            <span className="text-[10px] uppercase tracking-wider text-slate-500 block font-bold">Threat Score</span>
-            <span className="text-2xl font-extrabold font-mono text-slate-900">
+            <span className="text-[10px] uppercase tracking-wider text-slate-500 block font-extrabold">Threat Score</span>
+            <span className="text-2xl font-extrabold font-mono text-slate-900 leading-none">
               {currentScore}/100
             </span>
           </div>
-          <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border uppercase ${getRiskColor(riskLevel)}`}>
+          <span className={`px-2.5 py-1 text-xs font-extrabold font-mono rounded-lg border uppercase ${getRiskColor(riskLevel)}`}>
             {riskLevel}
           </span>
         </div>
       </div>
 
       {/* Recharts Area Plot */}
-      <div className="h-[220px] w-full mt-2">
+      <div className="h-[220px] w-full pt-2">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
             <defs>
@@ -81,8 +79,8 @@ export default function TrajectoryChart({ incident }) {
                 if (active && payload && payload.length) {
                   const data = payload[0].payload;
                   return (
-                    <div className="glass-card p-3 rounded-xl border border-slate-300 bg-white shadow-md text-xs space-y-1">
-                      <p className="font-bold text-blue-700">{data.step} ({data.timestamp})</p>
+                    <div className="soc-surface p-3 rounded-xl border border-slate-300 bg-white shadow-md text-xs space-y-1 font-mono">
+                      <p className="font-extrabold text-blue-700">{data.step} ({data.timestamp})</p>
                       <p className="text-slate-800">Threat Score: <strong className="text-slate-900 font-mono text-sm">{data.score}/100</strong></p>
                       <p className="text-slate-600 capitalize">Layer: <span className="text-amber-700 font-bold">{data.layer}</span></p>
                       <p className="text-slate-600">Trigger: <span className="text-blue-600 font-bold">{data.attack}</span></p>
@@ -92,8 +90,8 @@ export default function TrajectoryChart({ incident }) {
                 return null;
               }}
             />
-            <ReferenceLine y={60} stroke="#d97706" strokeDasharray="4 4" label={{ value: "High Risk Threshold", fill: "#d97706", fontSize: 10 }} />
-            <ReferenceLine y={80} stroke="#dc2626" strokeDasharray="4 4" label={{ value: "Critical Threshold", fill: "#dc2626", fontSize: 10 }} />
+            <ReferenceLine y={60} stroke="#d97706" strokeDasharray="4 4" label={{ value: "High Risk", fill: "#d97706", fontSize: 10 }} />
+            <ReferenceLine y={80} stroke="#dc2626" strokeDasharray="4 4" label={{ value: "Critical", fill: "#dc2626", fontSize: 10 }} />
             <Area
               type="monotone"
               dataKey="score"
@@ -101,27 +99,27 @@ export default function TrajectoryChart({ incident }) {
               strokeWidth={3}
               fillOpacity={1}
               fill="url(#scoreGradient)"
-              dot={{ r: 5, fill: "#2563eb", stroke: "#ffffff", strokeWidth: 2 }}
-              activeDot={{ r: 8, fill: "#1d4ed8", stroke: "#ffffff", strokeWidth: 2 }}
+              dot={{ r: 4, fill: "#2563eb", stroke: "#ffffff", strokeWidth: 2 }}
+              activeDot={{ r: 7, fill: "#1d4ed8", stroke: "#ffffff", strokeWidth: 2 }}
             />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
       {/* Layer badges footer */}
-      <div className="flex items-center justify-between border-t border-slate-200 pt-3 mt-2 text-xs text-slate-600">
-        <div className="flex items-center space-x-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3 text-xs text-slate-600">
+        <div className="flex items-center gap-2 flex-wrap">
           <Layers className="w-4 h-4 text-blue-600" />
-          <span className="font-medium">Fused Telemetry Layers:</span>
-          <div className="flex items-center space-x-1.5">
+          <span className="font-bold text-slate-700">Fused Telemetry Feeds:</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
             {['identity', 'endpoint', 'network', 'application'].map(layer => {
-              const active = incident.layers_involved.includes(layer);
+              const active = incident.layers_involved ? incident.layers_involved.includes(layer) : true;
               return (
                 <span
                   key={layer}
-                  className={`px-2 py-0.5 rounded text-[11px] font-mono capitalize border ${
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-mono capitalize border font-bold ${
                     active 
-                      ? 'bg-blue-100 text-blue-800 border-blue-200 font-semibold' 
+                      ? 'bg-blue-50 text-blue-700 border-blue-200' 
                       : 'bg-slate-100 text-slate-400 border-slate-200'
                   }`}
                 >
@@ -132,8 +130,8 @@ export default function TrajectoryChart({ incident }) {
           </div>
         </div>
 
-        <div className="text-slate-600 text-[11px] font-mono">
-          Entity: <span className="font-semibold text-slate-900">{incident.primary_entity}</span>
+        <div className="text-slate-600 text-xs font-mono font-medium">
+          Primary Entity: <span className="font-extrabold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">{incident.primary_entity || incident.entity_id}</span>
         </div>
       </div>
     </div>
